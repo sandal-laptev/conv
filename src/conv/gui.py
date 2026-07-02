@@ -244,7 +244,7 @@ async def main(page: ft.Page):
             bg = COLORS["surface"] if idx % 2 == 0 else COLORS["surface2"]
             file_list_view.controls.append(
                 ft.Container(content=row,
-                             padding=ft.padding.symmetric(horizontal=10, vertical=6),
+                             padding=ft.Padding(left=10, top=6, right=10, bottom=6),
                              border_radius=8, bgcolor=bg)
             )
         page.update()
@@ -488,7 +488,7 @@ async def main(page: ft.Page):
             ft.Text("Иохим Кузьмич Media Converter", size=13,
                     color=COLORS["text3"]),
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-        margin=ft.margin.only(bottom=8),
+        margin=ft.Margin(left=0, top=0, right=0, bottom=8),
     )
 
     params_panel = ft.Container(
@@ -503,9 +503,9 @@ async def main(page: ft.Page):
             ], tight=True, spacing=0),
             size_field,
         ], spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-        padding=ft.padding.symmetric(horizontal=14, vertical=8),
+        padding=ft.Padding(left=14, top=8, right=14, bottom=8),
         border_radius=10, bgcolor=COLORS["surface"],
-        margin=ft.margin.only(top=6, bottom=6),
+        margin=ft.Margin(left=0, top=6, right=0, bottom=6),
     )
 
     status_bar = ft.Column([
