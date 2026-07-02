@@ -108,6 +108,10 @@ async def main(page: ft.Page):
         use_material3=True,
     )
 
+    # ── FilePicker (создаём один раз, вешаем на overlay) ──────────────────
+    file_picker = ft.FilePicker()
+    page.overlay.append(file_picker)
+
     # ── Состояние ─────────────────────────────────────────────────────────
     converter = Converter()
     file_paths: list[Path] = []
@@ -180,18 +184,11 @@ async def main(page: ft.Page):
         if is_running:
             return
 
-        fp = ft.FilePicker()
-        page.overlay.append(fp)
-        page.update()
-
-        files = await fp.pick_files(
+        files = await file_picker.pick_files(
             allow_multiple=True,
             file_type=ft.FilePickerFileType.CUSTOM,
             allowed_extensions=list(ALL_INPUT),
         )
-
-        page.overlay.remove(fp)
-        page.update()
 
         if files:
             paths = [Path(f.path) for f in files]
