@@ -368,12 +368,12 @@ def main(page: ft.Page):
             else:
                 os.system(f'start "" "{out_dir}"')
 
-    def copy_logs(_e):
+    async def copy_logs(_e):
         """Копирует последние строки лога в буфер."""
-        import io
-        from conv.logger import tail, log_path
+        from conv.logger import tail
         lines = tail(80)
-        page.set_clipboard(lines)
+        clip = ft.Clipboard()
+        await clip.set(lines)
         # Визуальная обратная связь
         orig = copy_logs_btn.text
         copy_logs_btn.text = "✅ Скопировано!"
