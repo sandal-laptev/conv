@@ -45,7 +45,7 @@ pyinstaller --onefile --windowed ^
     --hidden-import conv.gui ^
     --hidden-import conv.logger ^
     --collect-all customtkinter ^
-    src/conv/__init__.py
+    src/conv/gui.py
 
 REM CLI version
 echo.
