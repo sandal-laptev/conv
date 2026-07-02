@@ -1,33 +1,41 @@
 @echo off
-REM Сборка conv под Windows через PyInstaller
-REM Требования: Python 3.10+, pip install -e .[gui] pyinstaller
+chcp 65001 >nul
 
-echo 🖧 Сборка conv для Windows
+REM Build conv for Windows using PyInstaller
+REM Requires: Python 3.10+, pip install -e .[gui] pyinstaller
+
+echo.
+echo 🖧 Building conv for Windows
 echo.
 
-REM Проверяем наличие ffmpeg
-if not exist ffmpeg.exe (
-    echo ⚠ ffmpeg.exe не найден рядом со скриптом.
-    echo    Скачайте с https://www.gyan.dev/ffmpeg/builds/ (ffmpeg-release-essentials.7z)
-    echo    Или соберите без ffmpeg (будет работать только ядро, ffmpeg нужен для видео/аудио)
+REM Check for ffmpeg.exe
+if not exist "%~dp0..\ffmpeg.exe" (
+    echo ⚠ ffmpeg.exe not found in project root.
+    echo    Download from: https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.7z
+    echo    Extract ffmpeg.exe to project root folder.
     echo.
-    set /p INCLUDE_FFMPEG=Включить ffmpeg? (y/n):
-    if /i "!INCLUDE_FFMPEG!"=="n" (
-        echo ❌ ffmpeg исключён из сборки
-        set FFMPEG_ARG=
-    ) else (
-        echo ❌ скачайте ffmpeg.exe и запустите снова
+    echo NOTE: Without ffmpeg, video and audio conversion will NOT work.
+    echo       Image/SVG conversion will work fine.
+    echo.
+    set /p INCLUDE_FFMPEG="Include ffmpeg? (y/N): "
+    if /i "!INCLUDE_FFMPEG!"=="y" (
+        echo ❌ Please download ffmpeg.exe first, then re-run.
         pause
         exit /b 1
+    ) else (
+        echo ⏭ Skipping ffmpeg
+        set FFMPEG_ARG=
     )
 ) else (
-    echo ✅ ffmpeg.exe найден
-    set FFMPEG_ARG=--add-data "ffmpeg.exe;."
+    echo ✅ ffmpeg.exe found
+    set FFMPEG_ARG=--add-data "%~dp0..\ffmpeg.exe;."
 )
 
-REM GUI-версия
+cd /d "%~dp0.."
+
+REM GUI version
 echo.
-echo 🖥️ Сборка GUI версии...
+echo 🖥️ Building GUI version...
 pyinstaller --onefile --windowed ^
     --name "conv" ^
     --add-data "src/conv;conv" ^
@@ -39,9 +47,9 @@ pyinstaller --onefile --windowed ^
     --collect-all customtkinter ^
     src/conv/__init__.py
 
-REM CLI-версия
+REM CLI version
 echo.
-echo ⌨️ Сборка CLI версии...
+echo ⌨️ Building CLI version...
 pyinstaller --onefile ^
     --name "conv-cli" ^
     --add-data "src/conv;conv" ^
@@ -52,7 +60,7 @@ pyinstaller --onefile ^
     src/conv/cli.py
 
 echo.
-echo ✅ Готово! Файлы в папке dist/
-echo   dist/conv.exe     — GUI версия
-echo   dist/conv-cli.exe — CLI версия
+echo ✅ Done! Files in dist/ folder:
+echo   dist\conv.exe     — GUI version
+echo   dist\conv-cli.exe — CLI version
 pause
