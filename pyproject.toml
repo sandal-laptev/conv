@@ -33,6 +33,7 @@ gui = ["flet>=0.25.0"]
 
 [project.scripts]
 conv = "conv.cli:main"
+conv-gui = "conv.gui:main_flet"
 
 [tool.setuptools]
 packages = {find = {where = ["src"]}}

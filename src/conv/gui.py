@@ -555,5 +555,10 @@ def main(page: ft.Page):
     page.update()
 
 
-if __name__ == "__main__":
+def main_flet():
+    """Точка входа для GUI (console_scripts)."""
     ft.app(target=main)
+
+
+if __name__ == "__main__":
+    main_flet()

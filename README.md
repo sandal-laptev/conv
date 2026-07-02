@@ -1,6 +1,6 @@
 # 🖧 conv — Иохим Кузьмич Media Converter
 
-Кроссплатформенный медиа-конвертер с CLI и GUI (скоро).
+Кроссплатформенный медиа-конвертер с CLI и GUI.
 
 ```
 ██╗ ██████╗ ██╗  ██╗██╗███╗   ███╗    ██╗  ██╗ ██████╗ ███╗   ██╗██╗   ██╗
@@ -12,7 +12,9 @@
 ```
 
 Конвертирует изображения, SVG, видео и аудио в популярные форматы.
-Пакетная и рекурсивная обработка. Многопоточность.
+Пакетная и рекурсивная обработка. Многопоточность. GUI (Flet) и CLI.
+
+---
 
 ## Возможности
 
@@ -25,28 +27,60 @@
 - Многопоточная конвертация
 - Настройка качества и максимального размера
 - Dry-run для предпросмотра
+- **GUI** с drag'n'drop, прогрессом, тёмной темой
+
+---
 
 ## Установка
 
-### Из PyPI (когда опубликуем)
+### Linux
 
 ```bash
-pip install conv-mediaconv
-```
-
-### Из исходников
-
-```bash
-# Зависимости системы
-sudo apt install -y ffmpeg librsvg2-bin
+# Системные зависимости (ffmpeg, rsvg)
+sudo apt install -y ffmpeg librsvg2-bin python3-pip
 
 # Установка пакета
-git clone https://github.com/sandal-laptev/conv.git
+git clone git@github.com:sandal-laptev/conv.git
 cd conv
-pip install -e .
+pip install -e .[gui]
 ```
 
-### Быстрый старт
+### Windows
+
+```powershell
+# Предварительно установите:
+# 1. Python 3.10+ — https://python.org
+# 2. ffmpeg — https://ffmpeg.org/download.html (добавьте в PATH)
+# 3. Git — https://git-scm.com
+
+# Установка пакета
+git clone git@github.com:sandal-laptev/conv.git
+cd conv
+pip install -e .[gui]
+```
+
+> **Примечание:** На Windows SVG → PNG потребуется установить `rsvg-convert`
+> (через [MSYS2](https://www.msys2.org/) или `choco install rsvg`).
+> Для HEIC/HEIF установите `pillow-heif`: `pip install pillow-heif`.
+
+---
+
+## Использование
+
+### 🖥️ GUI
+
+```bash
+# Просто:
+conv-gui
+
+# Или если не сработало:
+python -c "from conv.gui import main_flet; main_flet()"
+
+# Или напрямую (из папки проекта):
+python src/conv/gui.py
+```
+
+### ⌨️ CLI
 
 ```bash
 # Конвертировать всё в текущей папке
@@ -59,13 +93,13 @@ conv *.mp4
 conv -r -f webp -q 90 ~/photos/
 
 # Выходная папка
-conv -o ~/converted audio.flac
+conv -o converted audio.flac
 
-# Preview
+# Preview без конвертации
 conv --dry-run *.avi
 ```
 
-## Справка
+### Справка CLI
 
 ```
 conv [-h] [-o OUTPUT] [-f FORMAT] [-q N] [-s PX] [-r] [-j N] [--dry-run] [--version] [input ...]
@@ -83,10 +117,10 @@ conv [-h] [-o OUTPUT] [-f FORMAT] [-q N] [-s PX] [-r] [-j N] [--dry-run] [--vers
 | `--dry-run` | Только показать |
 | `--version` | Версия |
 
-## Примеры
+### Примеры CLI
 
 ```bash
-# Все MKV → MP4 (CRF 23)
+# Все MKV → MP4
 conv -f mp4 -q 75 *.mkv
 
 # Фото → WebP 85%, макс. 1920px
@@ -101,6 +135,21 @@ conv avatar.svg
 # На 8 потоках
 conv -j 8 -f mp4 ~/videos/
 ```
+
+---
+
+## Roadmap
+
+Подробный план — [ROADMAP.md](ROADMAP.md).
+
+Кратко:
+- **Фаза 0** — Фундамент ✅
+- **Фаза 1** — GUI Minimal 🔧
+- **Фаза 2** — Кирпичики (CI/CD, сборка бинарников) 📋
+- **Фаза 3** — Продвинутые возможности 💡
+- **Фаза 4** — Экосистема 💡
+
+---
 
 ## Лицензия
 
