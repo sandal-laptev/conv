@@ -35,6 +35,7 @@ COLORS = {
     "error": "#ff1744",
     "text": "#e0e0e0",
     "text2": "#9e9e9e",
+    "text3": "#616161",
 }
 
 ctk.set_appearance_mode("dark")
