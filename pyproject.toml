@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=64.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "conv"
+version = "2.0.0"
+description = "🖧 Иохим Кузьмич — кроссплатформенный медиа-конвертер"
+license = {text = "GPL-3.0-or-later"}
+readme = "README.md"
+authors = [
+    {name = "Иохим Кузьмич"},
+]
+requires-python = ">=3.10"
+keywords = ["media", "converter", "video", "audio", "image"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia",
+    "Topic :: Utilities",
+]
+
+dependencies = [
+    "Pillow>=10.0.0",
+    "tqdm>=4.60.0",
+]
+
+[project.optional-dependencies]
+heif = ["pillow-heif>=1.0.0"]
+gui = ["flet>=0.25.0"]
+
+[project.scripts]
+conv = "conv.cli:main"
+
+[tool.setuptools]
+packages = {find = {where = ["src"]}}
