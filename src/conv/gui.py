@@ -92,7 +92,7 @@ def border_all(width: float, color: str) -> ft.Border:
 # Главное приложение
 # ──────────────────────────────────────────────────────────────────────────────
 
-async def main(page: ft.Page):
+def main(page: ft.Page):
     page.title = "🖧 conv — Иохим Кузьмич Media Converter"
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 20
@@ -108,9 +108,15 @@ async def main(page: ft.Page):
         use_material3=True,
     )
 
-    # ── FilePicker (создаём один раз, добавляем на страницу) ──────────────
+    # ── FilePicker (callback-стиль, как в документации Flet) ─────────────
+    def on_pick_result(e: ft.FilePickerResultEvent):
+        if e.files:
+            paths = [Path(f.path) for f in e.files]
+            add_files(paths)
+
     file_picker = ft.FilePicker()
-    page.add(file_picker)
+    file_picker.on_result = on_pick_result
+    page.overlay.append(file_picker)
 
     # ── Состояние ─────────────────────────────────────────────────────────
     converter = Converter()
@@ -180,19 +186,15 @@ async def main(page: ft.Page):
                         paths.append(p)
             add_files(paths)
 
-    async def pick_files(_e):
+    def pick_files(_e):
         if is_running:
             return
-
-        files = await file_picker.pick_files(
+        # Вызов без await — результат придёт в on_pick_result
+        file_picker.pick_files(
             allow_multiple=True,
             file_type=ft.FilePickerFileType.CUSTOM,
             allowed_extensions=list(ALL_INPUT),
         )
-
-        if files:
-            paths = [Path(f.path) for f in files]
-            add_files(paths)
 
     drag_container.on_click = pick_files
 
