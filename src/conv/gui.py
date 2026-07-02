@@ -67,11 +67,11 @@ def fmt_time(s: float) -> str:
 
 def file_icon(ext: str) -> str:
     if ext in VIDEO_INPUT:
-        return ft.icons.VIDEO_FILE_ROUNDED
+        return ft.icons.VIDEO_LIBRARY
     elif ext in AUDIO_INPUT:
-        return ft.icons.AUDIO_FILE_ROUNDED
+        return ft.icons.AUDIOTRACK
     else:
-        return ft.icons.IMAGE_ROUNDED
+        return ft.icons.IMAGE
 
 
 def sym_for(ext: str) -> str:
@@ -132,7 +132,7 @@ def main(page: ft.Page):
         "Поддерживаются изображения, SVG, видео, аудио",
         size=11, color=COLORS["text3"],
     )
-    drag_icon = ft.Icon(ft.icons.CLOUD_UPLOAD_ROUNDED, size=44, color=COLORS["accent"])
+    drag_icon = ft.Icon(ft.icons.CLOUD_UPLOAD, size=44, color=COLORS["accent"])
 
     drag_container = ft.Container(
         content=ft.Column(
@@ -160,9 +160,9 @@ def main(page: ft.Page):
             res: ConvertResult | None = entry.get("result")
 
             status_icon = ft.Icon(
-                ft.icons.CHECK_CIRCLE_OUTLINE if res and res.ok else
-                ft.icons.ERROR_OUTLINE if res and not res.ok else
-                ft.icons.HOURGLASS_TOP,
+                ft.icons.CHECK_CIRCLE if res and res.ok else
+                ft.icons.ERROR if res and not res.ok else
+                ft.icons.HOURGLASS_EMPTY,
                 size=18,
                 color=COLORS["success"] if res and res.ok else
                       COLORS["error"] if res and not res.ok else
@@ -338,7 +338,7 @@ def main(page: ft.Page):
 
     convert_btn = ft.ElevatedButton(
         "⚡ Конвертировать",
-        icon=ft.icons.PLAY_ARROW_ROUNDED,
+        icon=ft.icons.PLAY_ARROW,
         style=ft.ButtonStyle(
             bgcolor=COLORS["accent"], color=COLORS["bg"],
             shape=ft.RoundedRectangleBorder(radius=10),
@@ -347,13 +347,13 @@ def main(page: ft.Page):
     )
     clear_btn = ft.OutlinedButton(
         "Очистить",
-        icon=ft.icons.DELETE_OUTLINE,
+        icon=ft.icons.DELETE,
         style=ft.ButtonStyle(color=COLORS["text3"]),
         disabled=True,
     )
     open_btn = ft.OutlinedButton(
         "Открыть папку",
-        icon=ft.icons.FOLDER_OPEN,
+        icon=ft.icons.FOLDER,
         style=ft.ButtonStyle(color=COLORS["text3"]),
         visible=False,
     )
