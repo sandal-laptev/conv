@@ -17,6 +17,9 @@ from conv.core import (
     _fmt_size,
     _fmt_time,
 )
+from conv.logger import get_logger, tail as log_tail
+
+log = get_logger("conv.cli")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -51,11 +54,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    log.info("CLI args: %s", vars(args))
+
     # ── Сбор файлов ──
     converter = Converter(workers=args.jobs)
 
     input_paths = [Path(p) for p in args.input] if args.input else [Path.cwd()]
     files = converter.collect(input_paths, recursive=args.recursive)
+
+    log.info("Собрано файлов: %d", len(files))
 
     if not files:
         print("ℹ Нет файлов для конвертации.")
@@ -67,6 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         out_dir = Path.cwd() / out_dir
     if not args.dry_run:
         out_dir.mkdir(parents=True, exist_ok=True)
+    log.info("Выходная папка: %s", out_dir)
 
     quality = max(1, min(100, args.quality))
     max_size = max(0, args.size)

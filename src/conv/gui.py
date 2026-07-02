@@ -19,6 +19,9 @@ from conv.core import (
     AUDIO_INPUT,
     ALL_INPUT,
 )
+from conv.logger import get_logger, log_path as log_file_path, tail as log_tail
+
+log = get_logger("conv.gui")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -108,11 +111,18 @@ def main(page: ft.Page):
         use_material3=True,
     )
 
+    log.info("GUI запущен")
+
     # ── FilePicker (callback-стиль, как в документации Flet) ─────────────
     def on_pick_result(e: ft.FilePickerResultEvent):
         if e.files:
             paths = [Path(f.path) for f in e.files]
+            log.info("Выбрано файлов: %d", len(paths))
+            for p in paths:
+                log.debug("  %s (%d KB)", p.name, _size_or_zero(p) / 1024)
             add_files(paths)
+        else:
+            log.info("Выбор файлов отменён")
 
     file_picker = ft.FilePicker()
     file_picker.on_result = on_pick_result
@@ -338,6 +348,11 @@ def main(page: ft.Page):
         style=ft.ButtonStyle(color=COLORS["text3"]),
         visible=False,
     )
+    copy_logs_btn = ft.TextButton(
+        "📋 Логи",
+        icon=ft.Icons.DESCRIPTION,
+        style=ft.ButtonStyle(color=COLORS["text3"]),
+    )
 
     def update_buttons():
         has = len(file_paths) > 0
@@ -353,7 +368,22 @@ def main(page: ft.Page):
             else:
                 os.system(f'start "" "{out_dir}"')
 
+    def copy_logs(_e):
+        """Копирует последние строки лога в буфер."""
+        import io
+        from conv.logger import tail, log_path
+        lines = tail(80)
+        page.set_clipboard(lines)
+        # Визуальная обратная связь
+        orig = copy_logs_btn.text
+        copy_logs_btn.text = "✅ Скопировано!"
+        page.update()
+        import threading
+        threading.Timer(2.0, lambda: setattr(copy_logs_btn, 'text', orig) or page.update()).start()
+        log.info("Логи скопированы в буфер (%d строк)", len(lines.split('\n')) - 1)
+
     open_btn.on_click = open_output
+    copy_logs_btn.on_click = copy_logs
 
     # ── Процесс конвертации ───────────────────────────────────────────────
 
@@ -510,7 +540,7 @@ def main(page: ft.Page):
     status_bar = ft.Column([
         ft.Row([progress_bar]),
         ft.Row([
-            status_main, status_sub, open_btn,
+            status_main, status_sub, open_btn, copy_logs_btn,
         ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
     ], spacing=4)
 

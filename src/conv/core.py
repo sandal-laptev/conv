@@ -18,6 +18,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional, Protocol
 
+from conv.logger import get_logger
+
+log = get_logger("conv.core")
+
 __version__ = "2.0.0"
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -195,6 +199,7 @@ class Converter:
         self.workers = workers or min(os.cpu_count() or 4, 8)
         self._pil_available: Optional[bool] = None
         self._heif_available: Optional[bool] = None
+        log.info("Converter инициализирован, workers=%d", self.workers)
 
     # ── Проверка инструментов ────────────────────────────────────────────────
 
@@ -221,12 +226,14 @@ class Converter:
 
     def check_tools(self) -> dict[str, bool]:
         """Проверка доступности инструментов."""
-        return {
+        tools = {
             'ffmpeg': self._which('ffmpeg'),
             'rsvg_convert': self._which('rsvg-convert'),
             'pil': self.has_pil,
             'pillow_heif': self.has_heif,
         }
+        log.info("Проверка инструментов: %s", tools)
+        return tools
 
     @staticmethod
     def _which(name: str) -> bool:
@@ -248,18 +255,21 @@ class Converter:
             res.ok = True
             res.took = time.time() - start
             res.output_path = req.output_path()
+            log.debug("Dry-run: %s → %s", req.input_path.name, res.output_path)
             return res
 
         # Проверка существования входного файла
         if not req.input_path.exists():
             res.error = f"Файл не найден: {req.input_path}"
             res.took = time.time() - start
+            log.warning("Файл не найден: %s", req.input_path)
             return res
 
         out_path = req.output_path()
         if out_path.resolve() == req.input_path.resolve():
             res.error = "Входной и выходной файл совпадают"
             res.took = time.time() - start
+            log.warning("Source == destination: %s", out_path)
             return res
 
         # Создаём родительскую директорию
@@ -269,29 +279,41 @@ class Converter:
         fmt = resolve_format(req.output_format, ext)
         mime = detect_mime(ext)
 
+        log.info("Конвертация: %s (%s) → %s [fmt=%s, q=%d, max=%d]",
+                 req.input_path.name, ext, out_path.name, fmt, req.quality, req.max_size)
+
         err: Optional[str] = None
 
         try:
             if ext in SVG_INPUT and mime == 'image':
+                log.debug("Конвертер: SVG → PNG")
                 err = self._convert_svg(req.input_path, out_path, req.max_size)
             elif mime == 'image':
+                log.debug("Конвертер: PIL изображение")
                 err = self._convert_image(req.input_path, out_path, fmt, req.quality, req.max_size)
             elif mime == 'video':
+                log.debug("Конвертер: ffmpeg видео")
                 err = self._convert_video(req.input_path, out_path, fmt, req.quality)
             elif mime == 'audio':
+                log.debug("Конвертер: ffmpeg аудио")
                 err = self._convert_audio(req.input_path, out_path, fmt, req.quality)
             else:
                 err = f"Неподдерживаемый тип: {ext}"
         except Exception as e:
             err = str(e)
+            log.exception("Исключение при конвертации %s", req.input_path.name)
 
         if err:
             res.error = err
             res.ok = False
+            log.error("Ошибка конвертации %s: %s", req.input_path.name, err)
         else:
             res.ok = True
             res.output_path = out_path
             res.dst_size = _try_size(out_path)
+            ratio = res.dst_size / res.src_size * 100 if res.src_size > 0 else 0
+            log.info("✅ %s → %s (%.1f%%, %.1fс)",
+                     req.input_path.name, out_path.name, ratio, res.took)
 
         res.took = time.time() - start
         return res
@@ -307,6 +329,8 @@ class Converter:
         results: list[ConvertResult] = []
         total = len(requests)
 
+        log.info("Пакетная конвертация: %d файлов, workers=%d", total, self.workers)
+
         with ThreadPoolExecutor(max_workers=self.workers) as pool:
             fut_map = {}
             for req in requests:
@@ -321,6 +345,8 @@ class Converter:
                 if on_progress:
                     on_progress(completed, total, res)
 
+        ok = sum(1 for r in results if r.ok)
+        log.info("Пакетная конвертация завершена: %d/%d успешно", ok, total)
         return results
 
     # ── Сбор файлов ──────────────────────────────────────────────────────────
