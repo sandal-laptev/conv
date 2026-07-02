@@ -349,7 +349,7 @@ def main(page: ft.Page):
         visible=False,
     )
     copy_logs_btn = ft.TextButton(
-        "📋 Логи",
+        content=ft.Text("📋 Логи", size=13, color=COLORS["text3"]),
         icon=ft.Icons.DESCRIPTION,
         style=ft.ButtonStyle(color=COLORS["text3"]),
     )
@@ -375,11 +375,11 @@ def main(page: ft.Page):
         clip = ft.Clipboard()
         await clip.set(lines)
         # Визуальная обратная связь
-        orig = copy_logs_btn.text
-        copy_logs_btn.text = "✅ Скопировано!"
+        orig_text = copy_logs_btn.content.value
+        copy_logs_btn.content.value = "✅ Скопировано!"
         page.update()
         import threading
-        threading.Timer(2.0, lambda: setattr(copy_logs_btn, 'text', orig) or page.update()).start()
+        threading.Timer(2.0, lambda: (setattr(copy_logs_btn.content, 'value', orig_text) or page.update())).start()
         log.info("Логи скопированы в буфер (%d строк)", len(lines.split('\n')) - 1)
 
     open_btn.on_click = open_output
