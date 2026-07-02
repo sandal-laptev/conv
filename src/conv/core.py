@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -225,13 +226,24 @@ class Converter:
         return self._heif_available
 
     def check_tools(self) -> dict[str, bool]:
-        """Проверка доступности инструментов."""
+        """Проверка доступности инструментов.
+
+        Ищет исполняемые файлы в PATH и в директории рядом с приложением
+        (для поддержки bundled-версий в PyInstaller).
+        """
         tools = {
-            'ffmpeg': self._which('ffmpeg'),
+            'ffmpeg':      self._which('ffmpeg'),
             'rsvg_convert': self._which('rsvg-convert'),
-            'pil': self.has_pil,
-            'pillow_heif': self.has_heif,
+            'pil':          self.has_pil,
+            'pillow_heif':  self.has_heif,
         }
+
+        # Если не нашли в PATH — проверяем рядом с exe (PyInstaller bundle)
+        if not tools['ffmpeg']:
+            tools['ffmpeg'] = self._which_bundled('ffmpeg')
+        if not tools['rsvg_convert']:
+            tools['rsvg_convert'] = self._which_bundled('rsvg-convert')
+
         log.info("Проверка инструментов: %s", tools)
         return tools
 
@@ -242,6 +254,27 @@ class Converter:
             return True
         except (FileNotFoundError, subprocess.TimeoutExpired):
             return False
+
+    @staticmethod
+    def _which_bundled(name: str) -> bool:
+        """Ищет bundled-инструмент рядом с exe (PyInstaller)."""
+        import sys
+        # Для PyInstaller: все файлы в sys._MEIPASS
+        base = Path(getattr(sys, '_MEIPASS', Path(sys.argv[0]).parent))
+        for candidate in [
+            base / name,
+            base / f"{name}.exe",
+            base / 'bin' / name,
+            base / 'bin' / f"{name}.exe",
+        ]:
+            if candidate.exists():
+                try:
+                    subprocess.run([str(candidate), '-version'],
+                                   capture_output=True, timeout=5)
+                    return True
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    continue
+        return False
 
     # ── Одиночная конвертация ────────────────────────────────────────────────
 
@@ -468,9 +501,33 @@ class Converter:
         return None
 
     @staticmethod
-    def _convert_video(src: Path, dst: Path, fmt_out: str, quality: int) -> Optional[str]:
+    def _ffmpeg_path() -> str:
+        """Возвращает путь к ffmpeg, включая bundled (PyInstaller)."""
+        import sys
+        if getattr(sys, 'frozen', False):
+            base = Path(sys._MEIPASS)
+            for p in [base / 'ffmpeg', base / 'ffmpeg.exe',
+                      base / 'bin' / 'ffmpeg', base / 'bin' / 'ffmpeg.exe']:
+                if p.exists():
+                    return str(p)
+        return 'ffmpeg'
+
+    @staticmethod
+    def _rsvg_path() -> str:
+        """Возвращает путь к rsvg-convert, включая bundled."""
+        import sys
+        if getattr(sys, 'frozen', False):
+            base = Path(sys._MEIPASS)
+            for p in [base / 'rsvg-convert', base / 'rsvg-convert.exe',
+                      base / 'bin' / 'rsvg-convert', base / 'bin' / 'rsvg-convert.exe']:
+                if p.exists():
+                    return str(p)
+        return 'rsvg-convert'
+
+    def _convert_video(self, src: Path, dst: Path, fmt_out: str, quality: int) -> Optional[str]:
         """Видео → ffmpeg."""
         crf = max(18, min(28, 28 - int((quality - 50) / 50 * 10)))
+        ffmpeg = self._ffmpeg_path()
 
         vcodec = 'libx264'
         acodec = 'aac'
@@ -485,7 +542,7 @@ class Converter:
             extra = ['-b:v', '0', '-b:a', '128k']
 
         cmd = [
-            'ffmpeg', '-i', str(src),
+            ffmpeg, '-i', str(src),
             '-c:v', vcodec, '-preset', 'medium', '-crf', str(crf),
             '-c:a', acodec,
         ] + extra + ['-b:a', '128k', '-y', str(dst)]
@@ -497,15 +554,15 @@ class Converter:
                              if 'error' in l.lower() or 'Error' in l]
                 return err_lines[-1] if err_lines else f"код {r.returncode}"
         except FileNotFoundError:
-            return "ffmpeg не найден: apt install ffmpeg"
+            return f"ffmpeg не найден: установите ffmpeg или положите рядом с {sys.argv[0]}"
         except subprocess.TimeoutExpired:
             return "Таймаут ffmpeg (>2ч)"
         return None
 
-    @staticmethod
-    def _convert_audio(src: Path, dst: Path, fmt_out: str, quality: int) -> Optional[str]:
+    def _convert_audio(self, src: Path, dst: Path, fmt_out: str, quality: int) -> Optional[str]:
         """Аудио → ffmpeg."""
         lame_q = max(0, min(9, 9 - int(quality / 100 * 9)))
+        ffmpeg = self._ffmpeg_path()
         params: list[str] = []
 
         if fmt_out == 'mp3':
@@ -521,7 +578,7 @@ class Converter:
         elif fmt_out == 'opus':
             params = ['-codec:a', 'libopus', '-b:a', '128k']
 
-        cmd = ['ffmpeg', '-i', str(src)] + params + ['-y', str(dst)]
+        cmd = [ffmpeg, '-i', str(src)] + params + ['-y', str(dst)]
 
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)
@@ -530,7 +587,7 @@ class Converter:
                              if 'error' in l.lower() or 'Error' in l]
                 return err_lines[-1] if err_lines else f"код {r.returncode}"
         except FileNotFoundError:
-            return "ffmpeg не найден: apt install ffmpeg"
+            return f"ffmpeg не найден: установите ffmpeg или положите рядом с {sys.argv[0]}"
         except subprocess.TimeoutExpired:
             return "Таймаут ffmpeg (>2ч)"
         return None
@@ -571,4 +628,34 @@ __all__ = [
     'OUTPUT_FORMATS', 'ALL_INPUT',
     'IMAGE_INPUT', 'SVG_INPUT', 'VIDEO_INPUT', 'AUDIO_INPUT',
     'detect_mime', 'resolve_format',
+    'get_tool_path',
 ]
+
+
+def get_tool_path(name: str) -> str:
+    """Возвращает путь к инструменту (ffmpeg, rsvg-convert).
+    Учитывает bundled-версию в PyInstaller.
+    """
+    ffmpeg_paths = {
+        'ffmpeg': ['ffmpeg', 'ffmpeg.exe'],
+        'rsvg-convert': ['rsvg-convert', 'rsvg-convert.exe'],
+    }
+    candidates = ffmpeg_paths.get(name, [name])
+
+    import sys
+    if getattr(sys, 'frozen', False):
+        base = Path(sys._MEIPASS)
+        for c in candidates:
+            for p in [base / c, base / 'bin' / c]:
+                if p.exists():
+                    return str(p)
+
+    # PATH
+    import shutil
+    for c in candidates:
+        found = shutil.which(c)
+        if found:
+            return found
+
+    return name
+

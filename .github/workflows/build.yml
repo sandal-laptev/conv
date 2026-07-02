@@ -1,0 +1,138 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Test — Python ${{ matrix.py }}
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        py: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.py }}
+
+      - name: Install deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg librsvg2-bin
+          pip install -e .[gui]
+
+      - name: Core import test
+        run: python -c "from conv.core import Converter; print('✅ core loaded')"
+
+      - name: CLI test
+        run: |
+          python -c "from conv.cli import main; print('✅ cli loaded')"
+
+  build-windows:
+    name: Build — Windows .exe
+    runs-on: windows-latest
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install deps
+        run: |
+          pip install -e .[gui]
+          pip install pyinstaller
+
+      - name: Download ffmpeg
+        run: |
+          curl -L -o ffmpeg-release.7z "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.7z"
+          7z x ffmpeg-release.7z -offmpeg-tmp
+          copy ffmpeg-tmp\ffmpeg-*-essentials-build\bin\ffmpeg.exe ffmpeg.exe
+
+      - name: Build .exe
+        run: |
+          pyinstaller --onefile --windowed `
+            --name "conv" `
+            --icon assets\icon.ico `
+            --add-data "ffmpeg.exe;." `
+            --add-data "src/conv;conv" `
+            --hidden-import conv.core `
+            --hidden-import conv.cli `
+            --hidden-import conv.gui `
+            --hidden-import conv.logger `
+            --collect-all customtkinter `
+            src/conv/__init__.py
+
+      - name: Build CLI-only .exe
+        run: |
+          pyinstaller --onefile `
+            --name "conv-cli" `
+            --add-data "src/conv;conv" `
+            --hidden-import conv.core `
+            --hidden-import conv.cli `
+            --hidden-import conv.logger `
+            src/conv/cli.py
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: conv-windows-x64
+          path: dist/*.exe
+
+  build-linux:
+    name: Build — Linux AppImage
+    runs-on: ubuntu-22.04
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg librsvg2-bin
+          pip install -e .[gui]
+          pip install pyinstaller
+
+      - name: Build
+        run: |
+          pyinstaller --onefile --windowed `
+            --name "conv" `
+            --add-data "src/conv;conv" `
+            --hidden-import conv.core `
+            --hidden-import conv.cli `
+            --hidden-import conv.gui `
+            --hidden-import conv.logger `
+            --collect-all customtkinter `
+            src/conv/__init__.py
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: conv-linux-x64
+          path: dist/*
+
+  release:
+    name: Release
+    runs-on: ubuntu-22.04
+    needs: [build-windows, build-linux]
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            conv-windows-x64/*.exe
+            conv-linux-x64/*
+          generate_release_notes: true

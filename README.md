@@ -138,16 +138,48 @@ conv -j 8 -f mp4 ~/videos/
 
 ---
 
+## Сборка в один файл
+
+### Windows
+
+```powershell
+# 1. Установить Python 3.10+ и зависимости
+pip install -e .[gui] pyinstaller
+
+# 2. Скачать ffmpeg.exe (опционально, для видео/аудио)
+#    https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.7z
+#    Положить ffmpeg.exe в корень проекта
+
+# 3. Запустить сборку
+scripts\build-win.bat
+
+# Или вручную:
+pyinstaller --onefile --windowed --name conv --add-data "src/conv;conv" src/conv/__init__.py
+```
+
+Готовые `.exe` появятся в папке `dist/`:
+- `conv.exe` — GUI версия
+- `conv-cli.exe` — консольная версия
+
+### Linux / macOS
+
+```bash
+pip install -e .[gui] pyinstaller
+pyinstaller --onefile --windowed --name conv --add-data "src/conv:conv" src/conv/__init__.py
+```
+
+---
+
 ## Roadmap
 
 Подробный план — [ROADMAP.md](ROADMAP.md).
 
 Кратко:
 - **Фаза 0** — Фундамент ✅
-- **Фаза 1** — GUI Minimal 🔧
-- **Фаза 2** — Кирпичики (CI/CD, сборка бинарников) 📋
-- **Фаза 3** — Продвинутые возможности 💡
-- **Фаза 4** — Экосистема 💡
+- **Фаза 1** — GUI Minimal ✅
+- **Фаза 2** — Кирпичики (CI/CD, сборка бинарников) 🧱
+- **Фаза 3** — Продвинутые возможности 🚀
+- **Фаза 4** — Экосистема 🌐
 
 ---
 
