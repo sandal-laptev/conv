@@ -108,9 +108,9 @@ async def main(page: ft.Page):
         use_material3=True,
     )
 
-    # ── FilePicker (создаём один раз, вешаем на overlay) ──────────────────
+    # ── FilePicker (создаём один раз, добавляем на страницу) ──────────────
     file_picker = ft.FilePicker()
-    page.overlay.append(file_picker)
+    page.add(file_picker)
 
     # ── Состояние ─────────────────────────────────────────────────────────
     converter = Converter()
