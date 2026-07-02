@@ -160,7 +160,6 @@ async def main(page: ft.Page):
     drag_target = ft.DragTarget(
         content=drag_container,
         on_accept=lambda e: _on_drop(e),
-        on_enter=lambda _: drag_highlight(True),
         on_leave=lambda _: drag_highlight(False),
     )
 
