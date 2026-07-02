@@ -2,356 +2,558 @@
 
 from __future__ import annotations
 
-import sys
+import os
+import threading
+import time
 from pathlib import Path
 
-try:
-    import flet as ft
-except ImportError:
-    print("Flet не установлен. Установи: pip install conv[gui]")
-    sys.exit(1)
+import flet as ft
 
 from conv.core import (
     Converter,
     ConvertRequest,
     ConvertResult,
     OUTPUT_FORMATS,
+    VIDEO_INPUT,
+    AUDIO_INPUT,
     detect_mime,
-    resolve_format,
 )
 
 
-def main(page: ft.Page):
-    # ── Настройки страницы ────────────────────────────────────────────────
-    page.title = "🖧 conv — Иохим Кузьмич"
-    page.theme_mode = ft.ThemeMode.DARK
-    page.padding = 20
-    page.window_width = 800
-    page.window_height = 700
-    page.window_min_width = 600
-    page.window_min_height = 500
+# ──────────────────────────────────────────────────────────────────────────────
+# Константы
+# ──────────────────────────────────────────────────────────────────────────────
 
-    # ── Цвета ─────────────────────────────────────────────────────────────
-    BG = "#0a0a2e"
-    SURFACE = "#1a1a3e"
-    ACCENT = "#00d4ff"
-    ACCENT2 = "#7b2ff7"
-    SUCCESS = "#00e676"
-    ERROR = "#ff1744"
+COLORS = {
+    "bg": "#0a0a2e",
+    "surface": "#1a1a3e",
+    "surface2": "#252550",
+    "accent": "#00d4ff",
+    "accent2": "#7b2ff7",
+    "success": "#00e676",
+    "error": "#ff1744",
+    "warning": "#ffab00",
+    "text": "#e0e0e0",
+    "text2": "#9e9e9e",
+    "text3": "#616161",
+}
 
-    page.bgcolor = BG
-
-    # ── Состояние ─────────────────────────────────────────────────────────
-    converter = Converter()
-    files: list[Path] = []
-    results: list[ConvertResult] = []
-    is_running = False
-
-    # ── Элементы интерфейса ───────────────────────────────────────────────
-
-    # Drag'n'drop область
-    drop_area = ft.Container(
-        content=ft.Column([
-            ft.Icon(ft.icons.CLOUD_UPLOAD_ROUNDED, size=48, color=ACCENT),
-            ft.Text("Перетащите файлы сюда", size=16, color=ACCENT),
-            ft.Text("или", size=12, color=ACCENT, opacity=0.6),
-            ft.ElevatedButton("Выбрать файлы",
-                              icon=ft.icons.FOLDER_OPEN,
-                              style=ft.ButtonStyle(color=ACCENT)),
-        ], alignment=ft.MainAxisAlignment.CENTER,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-        height=120,
-        border_radius=12,
-        border=ft.border.all(1, ACCENT + "40"),
-        gradient=ft.LinearGradient(
-            begin=ft.alignment.top_left,
-            end=ft.alignment.bottom_right,
-            colors=[SURFACE, BG],
-        ),
-        ink=True,
-    )
-
-    # Список файлов
-    file_list = ft.ListView(spacing=4, height=200, auto_scroll=True)
-
-    # Формат
-    format_dropdown = ft.Dropdown(
-        label="Выходной формат",
-        options=[
-            ft.dropdown.Option("auto", "Авто"),
-            *[ft.dropdown.Option(k, v['desc']) for k, v in OUTPUT_FORMATS.items()],
-        ],
-        value="auto",
-        width=200,
-    )
-
-    # Качество
-    quality_slider = ft.Slider(
-        min=1, max=100, value=85,
-        divisions=99,
-        label="{value}%",
-        width=200,
-    )
-    quality_label = ft.Text("85", size=14, color=ACCENT)
-
-    # Размер (макс. px)
-    size_field = ft.TextField(
-        label="Макс. px (0 = оригинал)",
-        value="0",
-        width=150,
-        keyboard_type=ft.KeyboardType.NUMBER,
-    )
-
-    # Прогресс
-    progress_bar = ft.ProgressBar(width=0, height=6, color=ACCENT, bgcolor=SURFACE)
-    status_text = ft.Text("Ожидание...", size=12, color=ft.colors.GREY_400)
-    stats_text = ft.Text("", size=12, color=ft.colors.GREY_500)
-
-    # Кнопки
-    convert_btn = ft.ElevatedButton(
-        "⚡ Конвертировать",
-        icon=ft.icons.PLAY_ARROW_ROUNDED,
-        style=ft.ButtonStyle(bgcolor=ACCENT, color=BG),
-        disabled=True,
-    )
-    clear_btn = ft.FilledTonalButton(
-        "Очистить",
-        icon=ft.icons.DELETE_OUTLINE,
-        style=ft.ButtonStyle(color=ft.colors.GREY_400),
-    )
-
-    # ── Обработчики ───────────────────────────────────────────────────────
-
-    def update_ui():
-        convert_btn.disabled = len(files) == 0 or is_running
-        clear_btn.disabled = len(files) == 0 or is_running
-        progress_bar.width = 400 if is_running else 0
-        page.update()
-
-    def on_drop(e: ft.DragTargetEvent):
-        nonlocal files
-        if is_running:
-            return
-        for path_str in (e.data or "").split("\n"):
-            path_str = path_str.strip().strip('"').strip("'")
-            if path_str:
-                p = Path(path_str)
-                if p.exists() and p.suffix.lower() in __import__('conv.core').ALL_INPUT:
-                    if p not in files:
-                        files.append(p)
-        _refresh_file_list()
-        update_ui()
-
-    def pick_files(e):
-        nonlocal files
-        if is_running:
-            return
-
-        def on_pick(e: ft.FilePickerResultEvent):
-            nonlocal files
-            if e.files:
-                for f in e.files:
-                    p = Path(f.path)
-                    if p.exists() and p.suffix.lower() in __import__('conv.core').ALL_INPUT:
-                        if p not in files:
-                            files.append(p)
-                _refresh_file_list()
-                update_ui()
-
-        page.dialog = ft.FilePicker(on_result=on_pick)
-        page.dialog.pick_files(allow_multiple=True,
-                                file_type=ft.FilePickerFileType.CUSTOM,
-                                allowed_extensions=list(__import__('conv.core').ALL_INPUT))
-
-    def remove_file(file_path: Path):
-        if file_path in files and not is_running:
-            files.remove(file_path)
-            _refresh_file_list()
-            update_ui()
-
-    def _refresh_file_list():
-        file_list.controls.clear()
-        for f in files:
-            ext = f.suffix.lower()
-            sym = "🖼" if ext not in (__import__('conv.core').VIDEO_INPUT | __import__('conv.core').AUDIO_INPUT) else \
-                  "🎬" if ext in __import__('conv.core').VIDEO_INPUT else "🎵"
-            file_list.controls.append(
-                ft.Container(
-                    content=ft.Row([
-                        ft.Text(f"{sym} {f.name}", size=13, expand=True),
-                        ft.Text(f"{(f.stat().st_size / 1024):.0f} KB",
-                                size=11, color=ft.colors.GREY_500),
-                        ft.IconButton(
-                            ft.icons.CLOSE,
-                            icon_size=16,
-                            icon_color=ft.colors.GREY_500,
-                            on_click=lambda _, p=f: remove_file(p),
-                        ),
-                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                    padding=5,
-                    border_radius=6,
-                    bgcolor=SURFACE,
-                    margin=ft.margin.symmetric(vertical=2),
-                )
-            )
-        page.update()
-
-    def on_quality_change(e):
-        quality_label.value = f"{int(e.control.value)}"
-        page.update()
-
-    def convert_start(e):
-        nonlocal is_running, results
-        if is_running or not files:
-            return
-
-        is_running = True
-        results = []
-        convert_btn.text = "⏳ Конвертируется..."
-        status_text.value = f"0/{len(files)}"
-        status_text.color = ACCENT
-        update_ui()
-
-        # Параметры
-        fmt = format_dropdown.value if format_dropdown.value != "auto" else ''
-        quality = int(quality_slider.value)
-        max_size = int(size_field.value or '0')
-
-        out_dir = Path.cwd() / "CONVERTED"
-        out_dir.mkdir(exist_ok=True, parents=True)
-
-        # Создаём запросы
-        requests = [
-            ConvertRequest(f, out_dir, output_format=fmt,
-                           quality=quality, max_size=max_size)
-            for f in files
-        ]
-
-        total = len(requests)
-
-        def on_progress(current, total, result):
-            status_text.value = f"{current}/{total}"
-            progress_bar.value = current / total
-            results.append(result)
-            page.update()
-
-        # Запуск в отдельном потоке
-        import threading
-
-        def run():
-            nonlocal is_running
-            try:
-                results.clear()
-                converter.convert_many(requests, on_progress=on_progress)
-
-                # Итог
-                ok = sum(1 for r in results if r.ok)
-                fail = total - ok
-                status_text.value = f"✅ {ok}/{total}" if fail == 0 else f"✅ {ok}/{total} ❌ {fail}"
-                status_text.color = SUCCESS if fail == 0 else ft.colors.ORANGE_400
-
-                # Статистика
-                total_src = sum(r.src_size for r in results)
-                total_dst = sum(r.dst_size for r in results if r.ok)
-                stats_text.value = (f"📦 {_fmt_size(total_src)} → {_fmt_size(total_dst)}"
-                                    f"  ({total_dst/total_src*100:.0f}%)"
-                                    if total_src > 0 else "")
-            except Exception as ex:
-                status_text.value = f"❌ Ошибка: {ex}"
-                status_text.color = ERROR
-            finally:
-                is_running = False
-                convert_btn.text = "⚡ Конвертировать"
-                progress_bar.value = 1.0
-                page.update()
-
-        threading.Thread(target=run, daemon=True).start()
-
-    # ── Сборка layout ─────────────────────────────────────────────────────
-
-    # Header
-    header = ft.Container(
-        content=ft.Row([
-            ft.Text("🖧  conv", size=28, weight=ft.FontWeight.BOLD,
-                    color=ACCENT),
-            ft.Text("Иохим Кузьмич Media Converter", size=13,
-                    color=ft.colors.GREY_500),
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-        margin=ft.margin.only(bottom=20),
-    )
-
-    # Параметры
-    params = ft.Container(
-        content=ft.Row([
-            format_dropdown,
-            ft.Column([
-                ft.Row([
-                    ft.Text("Качество:", size=12, color=ft.colors.GREY_400),
-                    quality_label,
-                ]),
-                quality_slider,
-            ], tight=True, spacing=0),
-            size_field,
-        ], spacing=20, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-        padding=10,
-        border_radius=8,
-        bgcolor=SURFACE,
-        margin=ft.margin.only(top=10, bottom=10),
-    )
-
-    # Кнопки
-    buttons = ft.Row([
-        convert_btn,
-        clear_btn,
-        status_text,
-    ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
-
-    # Статус
-    status_bar = ft.Row([
-        progress_bar,
-        stats_text,
-    ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
-
-    # Привязка событий
-    drop_area.on_click = pick_files
-    quality_slider.on_change = on_quality_change
-    convert_btn.on_click = convert_start
-
-    def clear_all(e):
-        nonlocal files, results
-        if is_running:
-            return
-        files.clear()
-        results.clear()
-        file_list.controls.clear()
-        status_text.value = "Ожидание..."
-        status_text.color = ft.colors.GREY_400
-        stats_text.value = ""
-        progress_bar.value = 0
-        page.update()
-
-    clear_btn.on_click = clear_all
-
-    # Финальный layout
-    page.add(
-        header,
-        drop_area,
-        params,
-        file_list,
-        buttons,
-        status_bar,
-    )
-
-    page.update()
+FORMAT_OPTIONS = [("auto", "Авто")] + [
+    (k, v["desc"]) for k, v in OUTPUT_FORMATS.items()
+]
 
 
-def _fmt_size(b: int) -> str:
-    for unit in ('B', 'KB', 'MB', 'GB'):
+# ──────────────────────────────────────────────────────────────────────────────
+# Вспомогательные функции
+# ──────────────────────────────────────────────────────────────────────────────
+
+def fmt_size(b: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
         if b < 1024:
             return f"{b:.1f} {unit}"
         b /= 1024
     return f"{b:.2f} TB"
 
 
-if __name__ == '__main__':
+def fmt_time(s: float) -> str:
+    if s < 60:
+        return f"{s:.1f}с"
+    m, r = divmod(s, 60)
+    if m < 60:
+        return f"{int(m)}м {r:.0f}с"
+    h, m = divmod(m, 60)
+    return f"{int(h)}ч {int(m)}м"
+
+
+def file_icon(ext: str) -> str:
+    if ext in VIDEO_INPUT:
+        return ft.icons.VIDEO_FILE_ROUNDED
+    elif ext in AUDIO_INPUT:
+        return ft.icons.AUDIO_FILE_ROUNDED
+    else:
+        return ft.icons.IMAGE_ROUNDED
+
+
+def sym_for(ext: str) -> str:
+    if ext in VIDEO_INPUT:
+        return "🎬"
+    elif ext in AUDIO_INPUT:
+        return "🎵"
+    return "🖼"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Главное приложение
+# ──────────────────────────────────────────────────────────────────────────────
+
+def main(page: ft.Page):
+    page.title = "🖧 conv — Иохим Кузьмич Media Converter"
+    page.theme_mode = ft.ThemeMode.DARK
+    page.padding = 20
+    page.spacing = 12
+    page.window_width = 880
+    page.window_height = 780
+    page.window_min_width = 700
+    page.window_min_height = 600
+    page.bgcolor = COLORS["bg"]
+
+    # ── Состояние ─────────────────────────────────────────────────────────
+    converter = Converter()
+    file_entries: list[dict] = []  # {path: Path, result: ConvertResult | None}
+    is_running = False
+    cancel_flag = False
+
+    # ── Тема (адаптивная) ──────────────────────────────────────────────────
+    def build_theme(dark: bool):
+        return ft.Theme(
+            color_scheme_seed=COLORS["accent"],
+            use_material3=True,
+            brightness=ft.Brightness.DARK if dark else ft.Brightness.LIGHT,
+        )
+
+    page.theme = build_theme(True)
+
+    # ── DragTarget область ─────────────────────────────────────────────────
+    drag_text = ft.Text(
+        "Перетащите файлы сюда или нажмите для выбора",
+        size=15, color=COLORS["text2"],
+    )
+    drag_subtext = ft.Text(
+        "Поддерживаются изображения, SVG, видео, аудио",
+        size=11, color=COLORS["text3"],
+    )
+    drag_icon = ft.Icon(ft.icons.CLOUD_UPLOAD_ROUNDED, size=44, color=COLORS["accent"])
+
+    drag_container = ft.Container(
+        content=ft.Column(
+            [drag_icon, drag_text, drag_subtext],
+            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=6,
+        ),
+        height=130,
+        border_radius=14,
+        bgcolor=COLORS["surface"],
+        border=ft.border.all(1.5, COLORS["accent"] + "40"),
+        ink=True,
+        animate=ft.animation.Animation(200, "easeInOut"),
+    )
+
+    # ── Список файлов ─────────────────────────────────────────────────────
+    file_list_view = ft.ListView(spacing=4, auto_scroll=True, height=240)
+
+    def refresh_file_list():
+        file_list_view.controls.clear()
+        for entry in file_entries:
+            p: Path = entry["path"]
+            ext = p.suffix.lower()
+            res: ConvertResult | None = entry.get("result")
+
+            status_icon = ft.Icon(
+                ft.icons.CHECK_CIRCLE_OUTLINE if res and res.ok else
+                ft.icons.ERROR_OUTLINE if res and not res.ok else
+                ft.icons.HOURGLASS_TOP,
+                size=18,
+                color=COLORS["success"] if res and res.ok else
+                      COLORS["error"] if res and not res.ok else
+                      COLORS["text3"],
+            )
+            size_text = ft.Text(fmt_size(p.stat().st_size), size=11,
+                                color=COLORS["text3"])
+            result_text = ft.Text("", size=11, color=COLORS["text2"])
+
+            if res:
+                if res.ok and res.output_path:
+                    result_text.value = (
+                        f"{fmt_size(res.dst_size)} ({res.dst_size / res.src_size * 100:.0f}%) "
+                        f"— {res.fmt_took()}"
+                    )
+                    result_text.color = COLORS["text2"]
+                elif not res.ok:
+                    result_text.value = res.error[:50]
+                    result_text.color = COLORS["error"]
+
+            row_parts = [
+                ft.Icon(file_icon(ext), size=20, color=COLORS["accent"]),
+                ft.Text(p.name, size=13, color=COLORS["text"], expand=True),
+                size_text,
+                status_icon,
+                result_text,
+                ft.IconButton(
+                    ft.icons.CLOSE,
+                    icon_size=16,
+                    icon_color=COLORS["text3"],
+                    on_click=lambda _, pp=p: remove_file(pp),
+                    disabled=is_running,
+                ),
+            ]
+
+            file_list_view.controls.append(
+                ft.Container(
+                    content=ft.Row(row_parts, spacing=8,
+                                   vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    padding=ft.padding.symmetric(horizontal=10, vertical=6),
+                    border_radius=8,
+                    bgcolor=COLORS["surface"] if (file_entries.index(entry) %
+                                                  2 == 0) else COLORS["surface2"],
+                    animate=ft.animation.Animation(150, "easeOut"),
+                )
+            )
+        page.update()
+
+    # ── Добавление/удаление файлов ────────────────────────────────────────
+
+    def add_files(paths: list[Path]):
+        if is_running:
+            return
+        existing = {e["path"] for e in file_entries}
+        for p in paths:
+            if p not in existing and p.suffix.lower() in __import__(
+                    "conv.core").ALL_INPUT:
+                file_entries.append({"path": p, "result": None})
+        refresh_file_list()
+        update_buttons()
+
+    def remove_file(p: Path):
+        if is_running:
+            return
+        file_entries[:] = [e for e in file_entries if e["path"] != p]
+        refresh_file_list()
+        update_buttons()
+
+    def clear_all():
+        if is_running:
+            return
+        file_entries.clear()
+        refresh_file_list()
+        update_buttons()
+        status_main.value = "Ожидание файлов..."
+        status_sub.value = ""
+        progress_bar.value = 0
+        page.update()
+
+    # ── Выбор файлов через диалог ─────────────────────────────────────────
+
+    def pick_files_dialog(e):
+        if is_running:
+            return
+
+        def on_pick(e: ft.FilePickerResultEvent):
+            if e.files:
+                paths = [Path(f.path) for f in e.files]
+                add_files(paths)
+
+        file_picker = ft.FilePicker(on_result=on_pick)
+        page.overlay.append(file_picker)
+        page.update()
+        file_picker.pick_files(allow_multiple=True)
+
+    drag_container.on_click = pick_files_dialog
+
+    # ── Drag'n'drop через JavaScript ─────────────────────────────────────
+    # Для полноценного DnD используем DragTarget
+    drag_target = ft.DragTarget(
+        content=drag_container,
+        on_accept=lambda e: on_drag_accept(e),
+        on_enter=lambda e: set_drag_highlight(True),
+        on_leave=lambda e: set_drag_highlight(False),
+    )
+
+    def set_drag_highlight(active: bool):
+        if active:
+            drag_container.border = ft.border.all(2, COLORS["accent"])
+            drag_container.bgcolor = COLORS["surface2"]
+            drag_icon.color = COLORS["accent2"]
+            drag_text.value = "📥 Отпустите файлы для добавления"
+            drag_text.color = COLORS["accent"]
+        else:
+            drag_container.border = ft.border.all(1.5, COLORS["accent"] + "40")
+            drag_container.bgcolor = COLORS["surface"]
+            drag_icon.color = COLORS["accent"]
+            drag_text.value = "Перетащите файлы сюда или нажмите для выбора"
+            drag_text.color = COLORS["text2"]
+        page.update()
+
+    def on_drag_accept(e: ft.DragTargetAcceptEvent):
+        set_drag_highlight(False)
+        # Flet передаёт данные DragTargetAcceptEvent.data — строка с путями
+        if e.data:
+            raw_paths = e.data.strip().split("\n")
+            paths = []
+            for rp in raw_paths:
+                rp = rp.strip().strip('"').strip("'")
+                if rp:
+                    p = Path(rp)
+                    if p.exists():
+                        paths.append(p)
+            add_files(paths)
+
+    # ── Параметры конвертации ─────────────────────────────────────────────
+
+    format_dropdown = ft.Dropdown(
+        label="Формат",
+        hint_text="Авто",
+        options=[ft.dropdown.Option(k, v) for k, v in FORMAT_OPTIONS],
+        value="auto",
+        width=160,
+        dense=True,
+    )
+
+    quality_slider = ft.Slider(
+        min=1, max=100, value=85, divisions=99,
+        label="{value}%", width=180,
+    )
+    quality_label = ft.Text("85%", size=13, color=COLORS["accent"])
+
+    size_field = ft.TextField(
+        label="Макс. px", hint_text="0 = ориг.",
+        value="0", width=110, dense=True,
+        keyboard_type=ft.KeyboardType.NUMBER,
+    )
+
+    def on_quality_change(e):
+        quality_label.value = f"{int(e.control.value)}%"
+        page.update()
+
+    quality_slider.on_change = on_quality_change
+
+    # ── Конвертация ───────────────────────────────────────────────────────
+
+    progress_bar = ft.ProgressBar(
+        width=0, height=6, color=COLORS["accent"],
+        bgcolor=COLORS["surface"],
+    )
+    status_main = ft.Text("Ожидание файлов...", size=14, color=COLORS["text2"])
+    status_sub = ft.Text("", size=12, color=COLORS["text3"])
+
+    convert_btn = ft.ElevatedButton(
+        "⚡ Конвертировать",
+        icon=ft.icons.PLAY_ARROW_ROUNDED,
+        style=ft.ButtonStyle(
+            bgcolor=COLORS["accent"], color=COLORS["bg"],
+            shape=ft.RoundedRectangleBorder(radius=10),
+        ),
+        disabled=True,
+    )
+    clear_btn = ft.OutlinedButton(
+        "Очистить",
+        icon=ft.icons.DELETE_OUTLINE,
+        style=ft.ButtonStyle(color=COLORS["text3"]),
+        disabled=True,
+    )
+    open_btn = ft.OutlinedButton(
+        "Открыть папку",
+        icon=ft.icons.FOLDER_OPEN,
+        style=ft.ButtonStyle(color=COLORS["text3"]),
+        visible=False,
+    )
+
+    def update_buttons():
+        has_files = len(file_entries) > 0
+        convert_btn.disabled = not has_files or is_running
+        clear_btn.disabled = not has_files or is_running
+        page.update()
+
+    def open_output(e):
+        out_dir = Path.cwd() / "CONVERTED"
+        if out_dir.exists():
+            os.system(f'xdg-open "{out_dir}"' if os.name == "posix"
+                      else f'start "" "{out_dir}"')
+
+    open_btn.on_click = open_output
+
+    # ── Процесс конвертации ───────────────────────────────────────────────
+
+    def do_convert(e):
+        nonlocal is_running, cancel_flag
+        if is_running or not file_entries:
+            return
+
+        is_running = True
+        cancel_flag = False
+
+        # Сброс результатов
+        for entry in file_entries:
+            entry["result"] = None
+
+        fmt = format_dropdown.value if format_dropdown.value != "auto" else ""
+        quality = int(quality_slider.value)
+        max_size = int(size_field.value or "0")
+
+        out_dir = Path.cwd() / "CONVERTED"
+        out_dir.mkdir(exist_ok=True, parents=True)
+
+        requests = [
+            ConvertRequest(
+                e["path"], out_dir, output_format=fmt,
+                quality=quality, max_size=max_size,
+            )
+            for e in file_entries
+        ]
+
+        total = len(requests)
+        done = 0
+        start_time = time.time()
+
+        status_main.value = "⏳ Конвертация..."
+        status_main.color = COLORS["accent"]
+        progress_bar.width = 600
+        progress_bar.value = 0.0
+        convert_btn.text = "⏹ Отмена"
+        convert_btn.style = ft.ButtonStyle(
+            bgcolor=COLORS["error"], color="#fff",
+            shape=ft.RoundedRectangleBorder(radius=10),
+        )
+        convert_btn.on_click = lambda _: setattr(cancel_flag, "value", True)
+        open_btn.visible = False
+        update_buttons()
+        refresh_file_list()
+
+        def cancel_click(_):
+            nonlocal cancel_flag
+            cancel_flag = True
+
+        convert_btn.on_click = cancel_click
+
+        def run():
+            nonlocal is_running, done
+            try:
+                for req in requests:
+                    if cancel_flag:
+                        break
+                    res = converter.convert_one(req)
+                    # Находим entry и обновляем
+                    for entry in file_entries:
+                        if entry["path"] == req.input_path:
+                            entry["result"] = res
+                            break
+                    done += 1
+                    # Обновляем UI из главного потока
+                    progress_bar.value = done / total
+                    elapsed = time.time() - start_time
+                    eta = (elapsed / done * (total - done)) if done > 0 else 0
+                    status_main.value = f"⏳ {done}/{total}  ({fmt_time(elapsed)} / ~{fmt_time(eta)})"
+                    page.update()
+                    refresh_file_list()
+            finally:
+                is_running = False
+
+            # Итог
+            ok = sum(1 for e in file_entries
+                     if e.get("result") and e["result"].ok)
+            fail = total - done if cancel_flag else total - ok
+
+            if cancel_flag and done == 0:
+                status_main.value = "⏹ Отменено"
+                status_main.color = COLORS["warning"]
+            elif fail == 0:
+                status_main.value = f"✅ Готово: {ok}/{total}"
+                status_main.color = COLORS["success"]
+                open_btn.visible = True
+            else:
+                status_main.value = f"✅ {ok}/{total}  ❌ {fail}/{total}"
+                status_main.color = COLORS["warning"] if fail > 0 else COLORS["success"]
+                open_btn.visible = ok > 0
+
+            total_src = sum(e.get("result").src_size
+                           for e in file_entries
+                           if e.get("result"))
+            total_dst = sum(e.get("result").dst_size
+                           for e in file_entries
+                           if e.get("result") and e["result"].ok)
+            total_time = sum(e.get("result").took
+                            for e in file_entries
+                            if e.get("result"))
+            if total_src > 0:
+                pct = total_dst / total_src * 100 if total_dst > 0 else 0
+                status_sub.value = (
+                    f"📦 {fmt_size(total_src)} → {fmt_size(total_dst)} "
+                    f"({pct:.0f}%)  ⏱ {fmt_time(total_time)}"
+                )
+            else:
+                status_sub.value = ""
+
+            progress_bar.value = 1.0
+            convert_btn.text = "⚡ Конвертировать"
+            convert_btn.style = ft.ButtonStyle(
+                bgcolor=COLORS["accent"], color=COLORS["bg"],
+                shape=ft.RoundedRectangleBorder(radius=10),
+            )
+            convert_btn.on_click = do_convert
+            update_buttons()
+            refresh_file_list()
+            page.update()
+
+        threading.Thread(target=run, daemon=True).start()
+
+    convert_btn.on_click = do_convert
+    clear_btn.on_click = lambda _: clear_all()
+
+    # ── Layout ─────────────────────────────────────────────────────────────
+
+    # Header
+    header = ft.Container(
+        content=ft.Row([
+            ft.Row([
+                ft.Text("🖧", size=30),
+                ft.Text("conv", size=28, weight=ft.FontWeight.BOLD,
+                        color=COLORS["accent"]),
+            ], spacing=6),
+            ft.Text("Иохим Кузьмич Media Converter", size=13,
+                    color=COLORS["text3"]),
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+        margin=ft.margin.only(bottom=8),
+    )
+
+    # Панель параметров
+    params_panel = ft.Container(
+        content=ft.Row([
+            format_dropdown,
+            ft.Column([
+                ft.Row([
+                    ft.Text("Качество:", size=12, color=COLORS["text3"]),
+                    quality_label,
+                ], spacing=4),
+                quality_slider,
+            ], tight=True, spacing=0),
+            size_field,
+        ], spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        padding=ft.padding.symmetric(horizontal=14, vertical=8),
+        border_radius=10,
+        bgcolor=COLORS["surface"],
+        margin=ft.margin.only(top=6, bottom=6),
+    )
+
+    # Статус-бар
+    status_bar = ft.Column([
+        ft.Row([
+            progress_bar,
+        ]),
+        ft.Row([
+            status_main,
+            status_sub,
+            open_btn,
+        ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+    ], spacing=4)
+
+    # Кнопки
+    btn_row = ft.Row([
+        convert_btn,
+        clear_btn,
+    ], spacing=10)
+
+    # Сборка
+    page.add(
+        header,
+        drag_target,
+        params_panel,
+        file_list_view,
+        btn_row,
+        status_bar,
+    )
+
+    page.update()
+
+
+if __name__ == "__main__":
     ft.app(target=main)
