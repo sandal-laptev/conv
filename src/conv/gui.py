@@ -87,6 +87,20 @@ def sym_for(ext: str) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 
 def main(page: ft.Page):
+    # Проверка версии Flet
+    try:
+        from flet.version import version as fv
+        flet_ver = tuple(int(x) for x in fv.split("."))
+        if flet_ver < (0, 21, 0):
+            page.add(ft.Text(
+                f"❌ Flet {fv} устарел. Обнови: pip install -U flet",
+                color=COLORS["error"], size=14,
+            ))
+            page.update()
+            return
+    except (ImportError, ValueError, AttributeError):
+        pass  # не можем проверить — пробуем запустить
+
     page.title = "🖧 conv — Иохим Кузьмич Media Converter"
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 20
@@ -103,15 +117,11 @@ def main(page: ft.Page):
     is_running = False
     cancel_flag = False
 
-    # ── Тема (адаптивная) ──────────────────────────────────────────────────
-    def build_theme(dark: bool):
-        return ft.Theme(
-            color_scheme_seed=COLORS["accent"],
-            use_material3=True,
-            brightness=ft.Brightness.DARK if dark else ft.Brightness.LIGHT,
-        )
-
-    page.theme = build_theme(True)
+    # ── Тема ───────────────────────────────────────────────────────────────
+    page.theme = ft.Theme(
+        color_scheme_seed=COLORS["accent"],
+        use_material3=True,
+    )
 
     # ── DragTarget область ─────────────────────────────────────────────────
     drag_text = ft.Text(
