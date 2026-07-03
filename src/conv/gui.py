@@ -206,17 +206,23 @@ class ConvApp(ctk.CTk):
                                        state="disabled")
         self.open_btn.grid(row=0, column=2, padx=(0, 8))
 
+        self.check_btn = ctk.CTkButton(btn_frame, text="🔧 Проверить",
+                                        fg_color=COLORS["surface2"],
+                                        text_color=COLORS["text2"],
+                                        command=self._check_tools)
+        self.check_btn.grid(row=0, column=3, padx=(0, 8))
+
         self.log_btn = ctk.CTkButton(btn_frame, text="📋 Логи",
                                       fg_color=COLORS["surface2"],
                                       text_color=COLORS["text2"],
                                       command=self._copy_logs)
-        self.log_btn.grid(row=0, column=3, padx=(0, 8))
+        self.log_btn.grid(row=0, column=4, padx=(0, 8))
 
         self.clear_btn = ctk.CTkButton(btn_frame, text="✕ Закрыть",
                                         fg_color=COLORS["surface2"],
                                         text_color=COLORS["text2"],
                                         command=self.destroy)
-        self.clear_btn.grid(row=0, column=4)
+        self.clear_btn.grid(row=0, column=5)
 
         # ── Прогресс и статус ──
         status_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -238,6 +244,9 @@ class ConvApp(ctk.CTk):
         self.stats_label = ctk.CTkLabel(status_frame, textvariable=self.stats_var,
                                          text_color=COLORS["text3"], anchor="e")
         self.stats_label.grid(row=1, column=1, sticky="e")
+
+        # ── Проверка инструментов при старте ──
+        self.after(100, self._check_tools_background)
 
         log.debug("UI построен")
 
@@ -500,6 +509,53 @@ class ConvApp(ctk.CTk):
                 os.system(f'start "" "{out_dir}"')
 
     # ── Копировать логи ──
+
+    # ── Проверка инструментов ──
+
+    def _check_tools_background(self):
+        """Проверка при старте — без модального окна."""
+        tools = self.converter.check_tools()
+        missing = [k for k, v in tools.items() if not v]
+        if missing:
+            names = {'ffmpeg': 'ffmpeg', 'rsvg_convert': 'rsvg-convert',
+                     'pil': 'Pillow', 'pillow_heif': 'pillow-heif'}
+            labels = [names.get(k, k) for k in missing]
+            self.status_var.set(f"⚠ Не найдены: {', '.join(labels)}")
+            log.warning("Отсутствуют инструменты: %s", missing)
+        else:
+            log.info("Все инструменты доступны")
+
+    def _check_tools(self):
+        """Проверка по кнопке — показывает messagebox."""
+        tools = self.converter.check_tools()
+        labels = {
+            'ffmpeg': 'ffmpeg (видео/аудио)',
+            'rsvg_convert': 'rsvg-convert (SVG)',
+            'pil': 'Pillow (изображения)',
+            'pillow_heif': 'pillow-heif (HEIC/HEIF)',
+        }
+        lines = []
+        for key, label in labels.items():
+            ok = tools.get(key, False)
+            sym = "✅" if ok else "❌"
+            lines.append(f"  {sym}  {label}")
+
+        msg = "Доступные инструменты:\n\n" + "\n".join(lines)
+
+        missing = [k for k, v in tools.items() if not v]
+        if missing:
+            tips = {
+                'ffmpeg': 'apt install ffmpeg',
+                'rsvg_convert': 'apt install librsvg2-bin',
+                'pil': 'pip install Pillow',
+                'pillow_heif': 'pip install pillow-heif',
+            }
+            msg += "\n\n⚠ Отсутствуют:\n"
+            for k in missing:
+                msg += f"\n  {k}: {tips.get(k, '?')}"
+
+        messagebox.showinfo("🔧 Проверка инструментов", msg)
+        log.info("Проверка инструментов: %s", tools)
 
     def _copy_logs(self):
         lines = log_tail(80)

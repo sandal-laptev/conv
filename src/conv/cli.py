@@ -13,6 +13,7 @@ from conv.core import (
     ALL_INPUT,
     VIDEO_INPUT,
     AUDIO_INPUT,
+    SVG_INPUT,
     QUALITY_PRESETS,
     resolve_format as resolve_fmt,
     _fmt_size,
@@ -47,11 +48,43 @@ def build_parser() -> argparse.ArgumentParser:
                    help='Рекурсивный обход папок')
     p.add_argument('-j', '--jobs', type=int, default=0,
                    help='Число параллельных задач (0 = авто)', metavar='N')
+    p.add_argument('--check-tools', action='store_true',
+                   help='Проверить доступность инструментов и выйти')
     p.add_argument('--dry-run', action='store_true',
                    help='Только показать, что будет конвертироваться')
     p.add_argument('--version', action='version',
                    version=f'conv v{__import__("conv").__version__} 🖧 Иохим Кузьмич')
     return p
+
+
+def _print_tools(tools: dict[str, bool]) -> None:
+    """Выводит таблицу доступности инструментов."""
+    labels = {
+        'ffmpeg': 'ffmpeg      (видео/аудио)',
+        'rsvg_convert': 'rsvg-convert (SVG → PNG)',
+        'pil': 'Pillow      (изображения)',
+        'pillow_heif': 'pillow-heif (HEIC/HEIF)',
+    }
+    print("\n  🔧 Проверка инструментов:\n")
+    for key, label in labels.items():
+        ok = tools.get(key, False)
+        sym = "✅" if ok else "❌"
+        print(f"  {sym}  {label}")
+    print()
+
+    missing = [k for k, v in tools.items() if not v]
+    if missing:
+        print("  ⚠ Отсутствуют:")
+        tips = {
+            'ffmpeg': 'apt install ffmpeg',
+            'rsvg_convert': 'apt install librsvg2-bin',
+            'pil': 'pip install Pillow',
+            'pillow_heif': 'pip install pillow-heif',
+        }
+        for k in missing:
+            tip = tips.get(k, '')
+            print(f"     {k}  — {tip}")
+        print()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -62,6 +95,13 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── Сбор файлов ──
     converter = Converter(workers=args.jobs)
+
+    # ── Проверка инструментов ──
+    tools = converter.check_tools()
+
+    if args.check_tools:
+        _print_tools(tools)
+        return 0
 
     input_paths = [Path(p) for p in args.input] if args.input else [Path.cwd()]
     files = converter.collect(input_paths, recursive=args.recursive)
@@ -102,6 +142,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  Макс.размер: {max_size}px")
     print(f"  Потоков:    {converter.workers}")
     print(f"  Режим:      {'🔍 DRY RUN' if args.dry_run else '⚡ КОНВЕРТАЦИЯ'}\n")
+
+    # ── Предупреждение об отсутствующих инструментах ──
+    need_video = any(f.suffix.lower() in VIDEO_INPUT for f in files)
+    need_audio = any(f.suffix.lower() in AUDIO_INPUT for f in files)
+    need_svg = any(f.suffix.lower() in SVG_INPUT for f in files)
+
+    if need_video or need_audio:
+        if not tools.get('ffmpeg'):
+            print("  ⚠  ffmpeg не найден! Видео и аудио не сконвертируются.")
+            print("     Установите: apt install ffmpeg\n")
+    if need_svg and not tools.get('rsvg_convert'):
+        print("  ⚠  rsvg-convert не найден! SVG не сконвертируются.")
+        print("     Установите: apt install librsvg2-bin\n")
 
     # ── Создаём запросы ──
     requests: list[ConvertRequest] = []
