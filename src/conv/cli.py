@@ -48,6 +48,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help='Рекурсивный обход папок')
     p.add_argument('-j', '--jobs', type=int, default=0,
                    help='Число параллельных задач (0 = авто)', metavar='N')
+    p.add_argument('--completion', choices=['bash', 'zsh'],
+                   help='Вывести скрипт автодополнения для указанной оболочки')
     p.add_argument('--check-tools', action='store_true',
                    help='Проверить доступность инструментов и выйти')
     p.add_argument('--dry-run', action='store_true',
@@ -87,6 +89,116 @@ def _print_tools(tools: dict[str, bool]) -> None:
         print()
 
 
+def _print_completion(shell: str) -> None:
+    """Генерирует скрипт автодополнения для bash или zsh."""
+    fmt_choices = ' '.join(OUTPUT_FORMATS.keys())
+    preset_choices = ' '.join(QUALITY_PRESETS.keys())
+    all_exts = ' '.join(sorted(ALL_INPUT))
+
+    if shell == 'bash':
+        print(_BASH_COMPLETION_TEMPLATE.format(
+            fmt_choices=fmt_choices,
+            preset_choices=preset_choices,
+            all_exts=all_exts,
+        ))
+    elif shell == 'zsh':
+        print(_ZSH_COMPLETION_TEMPLATE.format(
+            fmt_choices=fmt_choices,
+            preset_choices=preset_choices,
+            all_exts=all_exts,
+        ))
+
+
+_BASH_COMPLETION_TEMPLATE = '''# 🖧 conv — bash автодополнение
+# Установка: source <(conv --completion bash)
+# Или:      conv --completion bash > /etc/bash_completion.d/conv
+
+_conv_completions() {{
+    local cur prev words cword
+    _init_completion -n = || return
+
+    # Список всех флагов
+    local opts="-o --output -f --format -q --quality -s --size"
+    opts+=" --preset -r --recursive -j --jobs --check-tools --dry-run"
+    opts+=" --version -h --help --completion"
+
+    case $prev in
+        -o|--output)
+            _filedir -d
+            return
+            ;;
+        -f|--format)
+            COMPREPLY=($(compgen -W "{fmt_choices}" -- "$cur"))
+            return
+            ;;
+        --preset)
+            COMPREPLY=($(compgen -W "{preset_choices}" -- "$cur"))
+            return
+            ;;
+        --completion)
+            COMPREPLY=($(compgen -W "bash zsh" -- "$cur"))
+            return
+            ;;
+        -j|--jobs)
+            COMPREPLY=($(compgen -W "1 2 4 8 16" -- "$cur"))
+            return
+            ;;
+        -q|--quality)
+            COMPREPLY=($(compgen -W "{{1..100}}" -- "$cur"))
+            return
+            ;;
+        -s|--size)
+            COMPREPLY=($(compgen -W "640 1024 1920 3840" -- "$cur"))
+            return
+            ;;
+    esac
+
+    # Если курсор в начале слова — предлагаем флаги и файлы
+    if [[ $cur == -* ]]; then
+        COMPREPLY=($(compgen -W "$opts" -- "$cur"))
+    else
+        _filedir
+    fi
+}} &&
+complete -F _conv_completions conv
+'''
+
+_ZSH_COMPLETION_TEMPLATE = '''# 🖧 conv — zsh автодополнение
+# Установка: source <(conv --completion zsh)
+# Или:      conv --completion zsh > /usr/local/share/zsh/site-functions/_conv
+
+#compdef conv
+
+_conv() {{
+    local -a opts
+    opts=(
+        "-o[Выходная папка]:dir:_files -/"
+        "--output[Выходная папка]:dir:_files -/"
+        "-f[Выходной формат]:format:({fmt_choices})"
+        "--format[Выходной формат]:format:({fmt_choices})"
+        "-q[Качество 1-100]:quality:"
+        "--quality[Качество 1-100]:quality:"
+        "-s[Макс. px]:size:(640 1024 1920 3840)"
+        "--size[Макс. px]:size:(640 1024 1920 3840)"
+        "--preset[Пресет качества]:preset:({preset_choices})"
+        "-r[Рекурсивный обход]"
+        "--recursive[Рекурсивный обход]"
+        "-j[Параллельных задач]:jobs:(1 2 4 8 16)"
+        "--jobs[Параллельных задач]:jobs:(1 2 4 8 16)"
+        "--check-tools[Проверить инструменты]"
+        "--dry-run[Только предпросмотр]"
+        "--completion[Скрипт дополнения]:shell:(bash zsh)"
+        "--version[Версия]"
+        "-h[Справка]"
+        "--help[Справка]"
+    )
+    _arguments $opts '*:file:_files'
+}}
+
+_conv
+'''
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -101,6 +213,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.check_tools:
         _print_tools(tools)
+        return 0
+
+    if args.completion:
+        _print_completion(args.completion)
         return 0
 
     input_paths = [Path(p) for p in args.input] if args.input else [Path.cwd()]
