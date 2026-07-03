@@ -19,6 +19,7 @@ from conv.core import (
     VIDEO_INPUT,
     AUDIO_INPUT,
     ALL_INPUT,
+    resolve_format as resolve_fmt,
 )
 from conv.logger import get_logger, tail as log_tail, log_path as log_file_path
 
@@ -144,7 +145,8 @@ class ConvApp(ctk.CTk):
         ctk.CTkLabel(params_frame, text="Формат:", text_color=COLORS["text2"]).grid(
             row=0, column=1, sticky="w")
         fmt_menu = ctk.CTkOptionMenu(params_frame, variable=self.fmt_var,
-                                       values=fmt_options, width=160)
+                                       values=fmt_options, width=160,
+                                       command=lambda _: self._refresh_file_list())
         fmt_menu.grid(row=1, column=1, sticky="w", padx=(0, 10))
 
         # Качество
@@ -356,15 +358,24 @@ class ConvApp(ctk.CTk):
         if not self.file_paths:
             self.file_textbox.insert("0.0", "  (нет файлов — нажмите на область выше для выбора)\n")
         else:
+            # Формат из селектора
+            fmt_raw = self.fmt_var.get()
+            fmt_global = "" if fmt_raw == "Авто" else fmt_raw.split(" — ")[0]
+
             # Заголовок
-            header = f"  {'📄 Файл':<50} {'Размер':>8} {'Статус':>10} {'Результат':<25}\n"
-            header += f"  {'─'*50} {'─'*8} {'─'*10} {'─'*25}\n"
+            header = f"  {'📄 Файл':<42} {'→ формат':>10} {'Размер':>8} {'Статус':>10} {'Результат':<25}\n"
+            header += f"  {'─'*42} {'─'*10} {'─'*8} {'─'*10} {'─'*25}\n"
             self.file_textbox.insert("end", header)
 
             for p in self.file_paths:
                 ext = p.suffix.lower()
                 sym = "🎬" if ext in VIDEO_INPUT else "🎵" if ext in AUDIO_INPUT else "🖼"
                 name = f"{sym} {p.name}"
+
+                # Целевой формат
+                target_fmt = fmt_global if fmt_global else resolve_fmt('', ext)
+                fmt_str = f".{target_fmt}"
+
                 size_str = fmt_size(_size(p))
 
                 res = self.file_results.get(p)
@@ -378,7 +389,7 @@ class ConvApp(ctk.CTk):
                     status = "⏳"
                     info = ""
 
-                line = f"  {name:<48} {size_str:>8} {status:>10} {info:<25}\n"
+                line = f"  {name:<40} {fmt_str:>10} {size_str:>8} {status:>10} {info:<25}\n"
                 self.file_textbox.insert("end", line)
 
         self.file_textbox.configure(state="disabled")
