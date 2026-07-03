@@ -44,9 +44,9 @@
 
 ### Ближайшее (есть запрос)
 
-- [ ] **GitHub Actions CI** — тесты на Python 3.10–3.12 при каждом пуше
-- [ ] **Сборка в один .exe** — PyInstaller под Windows
-- [ ] **GitHub Actions Release** — автоматическая сборка Win/Mac/Linux
+- [x] **GitHub Actions CI** — тесты на Python 3.10–3.12 при каждом пуше
+- [x] **Сборка в один .exe** — PyInstaller под Windows
+- [x] **GitHub Actions Release** — автоматическая сборка Win/Mac/Linux (тег v*)
 - [ ] **Пресеты качества** — "Макс.", "Для веба", "Быстрый"
 - [ ] **Проверка инструментов** — сообщать если ffmpeg/rsvg не установлены
 
