@@ -43,9 +43,16 @@ pyinstaller --onefile --windowed ^
     --hidden-import conv.core ^
     --hidden-import conv.cli ^
     --hidden-import conv.gui ^
+    --hidden-import conv.gui.app ^
+    --hidden-import conv.gui.theme ^
+    --hidden-import conv.gui.controllers.conversion ^
+    --hidden-import conv.gui.widgets.drop_zone ^
+    --hidden-import conv.gui.widgets.params ^
+    --hidden-import conv.gui.widgets.file_list ^
+    --hidden-import conv.gui.widgets.preview ^
     --hidden-import conv.logger ^
     --collect-all customtkinter ^
-    src/conv/gui.py
+    scripts\entry_gui.py
 
 REM CLI version
 echo.
