@@ -255,15 +255,18 @@ class MediaInfo:
 
 
 def get_media_info(path: Path) -> MediaInfo:
-    """Извлекает информацию о медиафайле через ffprobe.
+    """Извлекает информацию о медиафайле.
 
-    Возвращает MediaInfo с доступными полями. Если ffprobe не найден
-    или файл не читается — все поля будут пустыми/нулевыми.
+    Сначала пытается через ffprobe (JSON). Если ffprobe не найден —
+    парсит вывод ffmpeg -i (stderr).
+
+    Возвращает MediaInfo с доступными полями. Если ни один инструмент
+    не доступен — все поля будут пустыми/нулевыми.
     """
     info = MediaInfo()
 
+    # ── Попытка 1: ffprobe ──
     try:
-        # Потоки
         r = subprocess.run(
             ['ffprobe', '-v', 'error',
              '-of', 'json',
@@ -274,45 +277,110 @@ def get_media_info(path: Path) -> MediaInfo:
              str(path)],
             capture_output=True, text=True, timeout=30,
         )
-        if r.returncode != 0:
-            return info
+        if r.returncode == 0 and r.stdout.strip():
+            import json
+            data = json.loads(r.stdout)
 
-        import json
-        data = json.loads(r.stdout)
+            # Формат
+            fmt = data.get('format', {})
+            dur = fmt.get('duration')
+            if dur:
+                info.duration = float(dur)
+            br = fmt.get('bit_rate')
+            if br:
+                info.bit_rate = int(br)
 
-        # Формат
-        fmt = data.get('format', {})
-        dur = fmt.get('duration')
-        if dur:
-            info.duration = float(dur)
-        br = fmt.get('bit_rate')
-        if br:
-            info.bit_rate = int(br)
+            # Потоки
+            for stream in data.get('streams', []):
+                ctype = stream.get('codec_type')
+                if ctype == 'video':
+                    info.video_codec = stream.get('codec_name', '')
+                    info.width = stream.get('width', 0) or 0
+                    info.height = stream.get('height', 0) or 0
+                    fps_str = stream.get('r_frame_rate', '')
+                    if fps_str and '/' in fps_str:
+                        try:
+                            num, den = fps_str.split('/')
+                            info.fps = float(num) / float(den) if float(den) > 0 else 0
+                        except (ValueError, ZeroDivisionError):
+                            pass
+                elif ctype == 'audio':
+                    info.audio_codec = stream.get('codec_name', '')
+                    info.audio_channels = stream.get('channels', 0) or 0
+                    sr = stream.get('sample_rate')
+                    if sr:
+                        info.sample_rate = int(sr)
+
+            return info  # ffprobe успешно отработал
+
+    except FileNotFoundError:
+        log.debug("ffprobe не найден, пробуем ffmpeg -i")
+    except Exception as ex:
+        log.debug("ffprobe error: %s", ex)
+
+    # ── Попытка 2: ffmpeg -i (парсим stderr) ──
+    try:
+        r = subprocess.run(
+            ['ffmpeg', '-i', str(path)],
+            capture_output=True, text=True, timeout=30,
+        )
+        stderr = r.stderr
+
+        # Длительность: Duration: 00:01:30.00
+        import re
+        m = re.search(r'Duration:\s*(\d+):(\d+):([\d.]+)', stderr)
+        if m:
+            h, min_, s = float(m.group(1)), float(m.group(2)), float(m.group(3))
+            info.duration = h * 3600 + min_ * 60 + s
+
+        # Битрейт: bitrate: 1250 kb/s
+        m = re.search(r'bitrate:\s*([\d]+)\s*kb/s', stderr)
+        if m:
+            info.bit_rate = int(m.group(1)) * 1000
 
         # Потоки
-        for stream in data.get('streams', []):
-            ctype = stream.get('codec_type')
-            if ctype == 'video':
-                info.video_codec = stream.get('codec_name', '')
-                info.width = stream.get('width', 0) or 0
-                info.height = stream.get('height', 0) or 0
-                fps_str = stream.get('r_frame_rate', '')
-                if fps_str and '/' in fps_str:
-                    try:
-                        num, den = fps_str.split('/')
-                        info.fps = float(num) / float(den) if float(den) > 0 else 0
-                    except (ValueError, ZeroDivisionError):
-                        pass
-            elif ctype == 'audio':
-                info.audio_codec = stream.get('codec_name', '')
-                info.audio_channels = stream.get('channels', 0) or 0
-                sr = stream.get('sample_rate')
-                if sr:
-                    info.sample_rate = int(sr)
+        for line in stderr.split('\n'):
+            # Видео: Stream #0:0: Video: h264 (High), yuv420p, 1920x1080 ...
+            m = re.match(
+                r'\s*Stream\s+#\d+:\d+.*?:\s*Video:\s*(\S+)',
+                line, re.IGNORECASE,
+            )
+            if m:
+                info.video_codec = m.group(1).lower().split('(')[0].strip()
+                # Разрешение: 1920x1080
+                res_m = re.search(r'(\d+)x(\d+)', line)
+                if res_m:
+                    info.width = int(res_m.group(1))
+                    info.height = int(res_m.group(2))
+                # FPS: 25 fps
+                fps_m = re.search(r'([\d.]+)\s*fps', line)
+                if fps_m:
+                    info.fps = float(fps_m.group(1))
+                continue
 
-    except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError,
-            OSError, ValueError):
-        pass
+            # Аудио: Stream #0:1: Audio: aac, 48000 Hz, stereo
+            m = re.match(
+                r'\s*Stream\s+#\d+:\d+.*?:\s*Audio:\s*(\S+)',
+                line, re.IGNORECASE,
+            )
+            if m:
+                info.audio_codec = m.group(1).lower()
+                sr_m = re.search(r'(\d+)\s*Hz', line)
+                if sr_m:
+                    info.sample_rate = int(sr_m.group(1))
+                if 'mono' in line:
+                    info.audio_channels = 1
+                elif 'stereo' in line:
+                    info.audio_channels = 2
+                elif '5.1' in line or '6ch' in line:
+                    info.audio_channels = 6
+                elif '7.1' in line or '8ch' in line:
+                    info.audio_channels = 8
+
+    except FileNotFoundError:
+        log.debug("ffmpeg не найден — медиа-инфо недоступна")
+    except Exception as ex:
+        log.debug("ffmpeg -i error: %s", ex)
 
     return info
 
@@ -369,6 +437,7 @@ class Converter:
         """
         tools = {
             'ffmpeg':      self._which('ffmpeg'),
+            'ffprobe':     self._which('ffprobe'),
             'rsvg_convert': self._which('rsvg-convert'),
             'pil':          self.has_pil,
             'pillow_heif':  self.has_heif,
@@ -377,6 +446,8 @@ class Converter:
         # Если не нашли в PATH — проверяем рядом с exe (PyInstaller bundle)
         if not tools['ffmpeg']:
             tools['ffmpeg'] = self._which_bundled('ffmpeg')
+        if not tools['ffprobe']:
+            tools['ffprobe'] = self._which_bundled('ffprobe')
         if not tools['rsvg_convert']:
             tools['rsvg_convert'] = self._which_bundled('rsvg-convert')
 

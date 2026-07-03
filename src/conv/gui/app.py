@@ -354,7 +354,8 @@ class ConvApp(ctk.CTk):
     def _check_tools(self):
         tools = self.converter.check_tools()
         labels = {
-            "ffmpeg": "ffmpeg (видео/аудио)",
+            "ffmpeg": "ffmpeg (конвертация)",
+            "ffprobe": "ffprobe (медиа-инфо)",
             "rsvg_convert": "rsvg-convert (SVG)",
             "pil": "Pillow (изображения)",
             "pillow_heif": "pillow-heif (HEIC/HEIF)",

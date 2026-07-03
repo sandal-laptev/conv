@@ -68,7 +68,8 @@ def build_parser() -> argparse.ArgumentParser:
 def _print_tools(tools: dict[str, bool]) -> None:
     """Выводит таблицу доступности инструментов."""
     labels = {
-        'ffmpeg': 'ffmpeg      (видео/аудио)',
+        'ffmpeg': 'ffmpeg       (конвертация)',
+        'ffprobe': 'ffprobe     (медиа-инфо)',
         'rsvg_convert': 'rsvg-convert (SVG → PNG)',
         'pil': 'Pillow      (изображения)',
         'pillow_heif': 'pillow-heif (HEIC/HEIF)',
