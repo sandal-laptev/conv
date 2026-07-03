@@ -44,6 +44,9 @@ VIDEO_INPUT: set[str] = {
     '.gifv', '.mxf', '.nsv', '.svi', '.viv', '.yuv', '.roq',
     '.m2v', '.mpv', '.mpe', '.mng', '.qt', '.f4v', '.f4p',
     '.f4a', '.f4b',
+    # raw-потоки (без контейнера)
+    '.h264', '.264', '.avc',
+    '.h265', '.265', '.hevc',
 }
 
 AUDIO_INPUT: set[str] = {
