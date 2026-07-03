@@ -62,11 +62,12 @@ for f in ['src/conv/gui/app.py', 'src/conv/gui/theme.py',
           pip install -e .[gui]
           pip install pyinstaller
 
-      - name: Download ffmpeg
+      - name: Download ffmpeg + ffprobe
         run: |
           curl -L -o ffmpeg-release.7z "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.7z"
           7z x ffmpeg-release.7z -offmpeg-tmp
           copy ffmpeg-tmp\ffmpeg-*-essentials-build\bin\ffmpeg.exe ffmpeg.exe
+          copy ffmpeg-tmp\ffmpeg-*-essentials-build\bin\ffprobe.exe ffprobe.exe
 
       - name: Build .exe
         run: |
@@ -74,6 +75,7 @@ for f in ['src/conv/gui/app.py', 'src/conv/gui/theme.py',
             --name "conv" `
             --icon assets\icon.ico `
             --add-data "ffmpeg.exe;." `
+            --add-data "ffprobe.exe;." `
             --add-data "src/conv;conv" `
             --hidden-import conv.core `
             --hidden-import conv.cli `

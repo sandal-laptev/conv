@@ -265,10 +265,13 @@ def get_media_info(path: Path) -> MediaInfo:
     """
     info = MediaInfo()
 
+    ffprobe = Converter._tool_path('ffprobe')
+    ffmpeg = Converter._tool_path('ffmpeg')
+
     # ── Попытка 1: ffprobe ──
     try:
         r = subprocess.run(
-            ['ffprobe', '-v', 'error',
+            [ffprobe, '-v', 'error',
              '-of', 'json',
              '-show_entries',
              'stream=codec_type,codec_name,width,height,'
@@ -321,7 +324,7 @@ def get_media_info(path: Path) -> MediaInfo:
     # ── Попытка 2: ffmpeg -i (парсим stderr) ──
     try:
         r = subprocess.run(
-            ['ffmpeg', '-i', str(path)],
+            [ffmpeg, '-i', str(path)],
             capture_output=True, text=True, timeout=30,
         )
         stderr = r.stderr
@@ -464,23 +467,33 @@ class Converter:
 
     @staticmethod
     def _which_bundled(name: str) -> bool:
-        """Ищет bundled-инструмент рядом с exe (PyInstaller)."""
-        import sys
-        # Для PyInstaller: все файлы в sys._MEIPASS
-        base = Path(getattr(sys, '_MEIPASS', Path(sys.argv[0]).parent))
-        for candidate in [
-            base / name,
-            base / f"{name}.exe",
-            base / 'bin' / name,
-            base / 'bin' / f"{name}.exe",
-        ]:
-            if candidate.exists():
-                try:
-                    subprocess.run([str(candidate), '-version'],
-                                   capture_output=True, timeout=5)
-                    return True
-                except (FileNotFoundError, subprocess.TimeoutExpired):
-                    continue
+        """Ищет bundled-инструмент рядом с exe / в корне проекта."""
+        dirs = []
+        # PyInstaller: все файлы в sys._MEIPASS
+        if getattr(sys, 'frozen', False):
+            dirs.append(Path(sys._MEIPASS))
+        else:
+            # Рядом с запускаемым скриптом
+            dirs.append(Path(sys.argv[0]).parent)
+            # Корень проекта (родитель src/conv/)
+            script_dir = Path(__file__).resolve().parent.parent.parent
+            if script_dir not in dirs:
+                dirs.append(script_dir)
+
+        for base in dirs:
+            for candidate in [
+                base / name,
+                base / f"{name}.exe",
+                base / 'bin' / name,
+                base / 'bin' / f"{name}.exe",
+            ]:
+                if candidate.exists():
+                    try:
+                        subprocess.run([str(candidate), '-version'],
+                                       capture_output=True, timeout=5)
+                        return True
+                    except (FileNotFoundError, subprocess.TimeoutExpired):
+                        continue
         return False
 
     # ── Одиночная конвертация ────────────────────────────────────────────────
@@ -708,28 +721,42 @@ class Converter:
         return None
 
     @staticmethod
-    def _ffmpeg_path() -> str:
-        """Возвращает путь к ffmpeg, включая bundled (PyInstaller)."""
-        import sys
+    def _tool_path(name: str) -> str:
+        """Ищет инструмент: рядом с exe / в корне проекта / в PATH."""
+        dirs = []
         if getattr(sys, 'frozen', False):
-            base = Path(sys._MEIPASS)
-            for p in [base / 'ffmpeg', base / 'ffmpeg.exe',
-                      base / 'bin' / 'ffmpeg', base / 'bin' / 'ffmpeg.exe']:
+            dirs.append(Path(sys._MEIPASS))
+        else:
+            dirs.append(Path(sys.argv[0]).parent)
+            script_dir = Path(__file__).resolve().parent.parent.parent
+            if script_dir not in dirs:
+                dirs.append(script_dir)
+
+        exts = ['', '.exe']
+        for base in dirs:
+            for ext in exts:
+                p = base / f"{name}{ext}"
                 if p.exists():
                     return str(p)
-        return 'ffmpeg'
+                bin_p = base / 'bin' / f"{name}{ext}"
+                if bin_p.exists():
+                    return str(bin_p)
+        return name
+
+    @staticmethod
+    def _ffmpeg_path() -> str:
+        """Путь к ffmpeg (bundled / системный)."""
+        return Converter._tool_path('ffmpeg')
+
+    @staticmethod
+    def _ffprobe_path() -> str:
+        """Путь к ffprobe (bundled / системный)."""
+        return Converter._tool_path('ffprobe')
 
     @staticmethod
     def _rsvg_path() -> str:
-        """Возвращает путь к rsvg-convert, включая bundled."""
-        import sys
-        if getattr(sys, 'frozen', False):
-            base = Path(sys._MEIPASS)
-            for p in [base / 'rsvg-convert', base / 'rsvg-convert.exe',
-                      base / 'bin' / 'rsvg-convert', base / 'bin' / 'rsvg-convert.exe']:
-                if p.exists():
-                    return str(p)
-        return 'rsvg-convert'
+        """Путь к rsvg-convert (bundled / системный)."""
+        return Converter._tool_path('rsvg-convert')
 
     def _convert_video(self, src: Path, dst: Path, fmt_out: str, quality: int) -> Optional[str]:
         """Видео → ffmpeg."""
@@ -842,29 +869,8 @@ __all__ = [
 
 
 def get_tool_path(name: str) -> str:
-    """Возвращает путь к инструменту (ffmpeg, rsvg-convert).
-    Учитывает bundled-версию в PyInstaller.
+    """Возвращает путь к инструменту (ffmpeg, ffprobe, rsvg-convert).
+    Учитывает bundled-версию в PyInstaller и корень проекта.
     """
-    ffmpeg_paths = {
-        'ffmpeg': ['ffmpeg', 'ffmpeg.exe'],
-        'rsvg-convert': ['rsvg-convert', 'rsvg-convert.exe'],
-    }
-    candidates = ffmpeg_paths.get(name, [name])
-
-    import sys
-    if getattr(sys, 'frozen', False):
-        base = Path(sys._MEIPASS)
-        for c in candidates:
-            for p in [base / c, base / 'bin' / c]:
-                if p.exists():
-                    return str(p)
-
-    # PATH
-    import shutil
-    for c in candidates:
-        found = shutil.which(c)
-        if found:
-            return found
-
-    return name
+    return Converter._tool_path(name)
 

@@ -50,8 +50,7 @@ pip install -e .[gui]
 ```powershell
 # Предварительно установите:
 # 1. Python 3.10+ — https://python.org
-# 2. ffmpeg — https://ffmpeg.org/download.html (добавьте в PATH)
-# 3. Git — https://git-scm.com
+# 2. Git — https://git-scm.com
 
 # Установка пакета
 git clone git@github.com:sandal-laptev/conv.git
@@ -59,9 +58,26 @@ cd conv
 pip install -e .[gui]
 ```
 
-> **Примечание:** На Windows SVG → PNG потребуется установить `rsvg-convert`
-> (через [MSYS2](https://www.msys2.org/) или `choco install rsvg`).
-> Для HEIC/HEIF установите `pillow-heif`: `pip install pillow-heif`.
+#### ffmpeg + ffprobe (для видео/аудио)
+
+**Вариант A — системная установка (рекомендуется):**
+Скачайте ffmpeg с https://ffmpeg.org/download.html и добавьте `ffmpeg.exe`
+(и `ffprobe.exe`) в PATH.
+
+**Вариант B — положить рядом с проектом (для сборки .exe):**
+```powershell
+# Скачать и распаковать в корень проекта
+curl -L -o ffmpeg-release.7z "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.7z"
+7z x ffmpeg-release.7z -offmpeg-tmp
+copy ffmpeg-tmp\ffmpeg-*-essentials-build\bin\ffmpeg.exe .
+copy ffmpeg-tmp\ffmpeg-*-essentials-build\bin\ffprobe.exe .
+```
+Если `ffmpeg.exe` лежит в корне проекта, `conv` найдёт его автоматически
+и при сборке `.exe` через PyInstaller включит в bundle.
+
+> **Примечание:** SVG → PNG требует `rsvg-convert`
+> ([MSYS2](https://www.msys2.org/) или `choco install rsvg`).
+> HEIC/HEIF: `pip install pillow-heif`.
 
 ---
 

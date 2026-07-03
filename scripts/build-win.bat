@@ -8,30 +8,29 @@ echo.
 echo 🖧 Building conv for Windows
 echo.
 
+cd /d "%~dp0.."
+set EXTRA_DATA=
+
 REM Check for ffmpeg.exe
-if not exist "%~dp0..\ffmpeg.exe" (
-    echo ⚠ ffmpeg.exe not found in project root.
-    echo    Download from: https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.7z
-    echo    Extract ffmpeg.exe to project root folder.
-    echo.
-    echo NOTE: Without ffmpeg, video and audio conversion will NOT work.
-    echo       Image/SVG conversion will work fine.
-    echo.
-    set /p INCLUDE_FFMPEG="Include ffmpeg? (y/N): "
-    if /i "!INCLUDE_FFMPEG!"=="y" (
-        echo ❌ Please download ffmpeg.exe first, then re-run.
-        pause
-        exit /b 1
-    ) else (
-        echo ⏭ Skipping ffmpeg
-        set FFMPEG_ARG=
-    )
+if exist "%~dp0..\ffmpeg.exe" (
+    echo ✅ ffmpeg.exe found — будет включён в сборку
+    set EXTRA_DATA=--add-data "ffmpeg.exe;."
 ) else (
-    echo ✅ ffmpeg.exe found
-    set FFMPEG_ARG=--add-data "%~dp0..\ffmpeg.exe;."
+    echo ⚠ ffmpeg.exe not found in project root.
+    echo    Download: https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.7z
+    echo    (извлеките ffmpeg.exe в корень проекта)
+    echo.
 )
 
-cd /d "%~dp0.."
+REM Check for ffprobe.exe
+if exist "%~dp0..\ffprobe.exe" (
+    echo ✅ ffprobe.exe found — будет включён в сборку
+    set EXTRA_DATA=%EXTRA_DATA% --add-data "ffprobe.exe;."
+) else (
+    echo ℹ ffprobe.exe not found — медиа-инфо будет через ffmpeg -i
+    echo    (можно положить ffprobe.exe рядом с ffmpeg.exe)
+    echo.
+)
 
 REM GUI version
 echo.
@@ -39,7 +38,7 @@ echo 🖥️ Building GUI version...
 pyinstaller --onefile --windowed ^
     --name "conv" ^
     --add-data "src/conv;conv" ^
-    %FFMPEG_ARG% ^
+    %EXTRA_DATA% ^
     --hidden-import conv.core ^
     --hidden-import conv.cli ^
     --hidden-import conv.gui ^
@@ -60,7 +59,7 @@ echo ⌨️ Building CLI version...
 pyinstaller --onefile ^
     --name "conv-cli" ^
     --add-data "src/conv;conv" ^
-    %FFMPEG_ARG% ^
+    %EXTRA_DATA% ^
     --hidden-import conv.core ^
     --hidden-import conv.cli ^
     --hidden-import conv.logger ^
