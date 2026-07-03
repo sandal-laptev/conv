@@ -18,6 +18,7 @@ from conv.core import (
     QUALITY_PRESETS,
     VIDEO_INPUT,
     AUDIO_INPUT,
+    SVG_INPUT,
     ALL_INPUT,
     resolve_format as resolve_fmt,
 )
@@ -70,7 +71,7 @@ class ConvApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("🖧 conv — Иохим Кузьмич Media Converter")
-        self.geometry("880x720")
+        self.geometry("1100x720")
         self.minsize(700, 600)
 
         # Состояние
@@ -79,8 +80,11 @@ class ConvApp(ctk.CTk):
         self.file_results: dict[Path, ConvertResult] = {}
         self.is_running = False
         self.cancel_flag = False
+        self.preview_index = 0
+        self._preview_thumb: ctk.CTkImage | None = None
 
         self._build_ui()
+        self._update_preview()
         log.info("GUI запущен (CustomTkinter)")
 
     # ── Сборка интерфейса ───────────────────────────────────────────────
@@ -169,17 +173,76 @@ class ConvApp(ctk.CTk):
         self.size_entry.insert(0, "1920")
         self.size_entry.bind("<KeyRelease>", self._on_size_change)
 
-        # ── Список файлов (скроллируемый) ──
-        list_frame = ctk.CTkFrame(self, fg_color="transparent")
-        list_frame.grid(row=3, column=0, pady=5, padx=15, sticky="nsew")
-        list_frame.grid_rowconfigure(0, weight=1)
-        list_frame.grid_columnconfigure(0, weight=1)
+        # ── Основная область: список файлов + предпросмотр ──
+        content_frame = ctk.CTkFrame(self, fg_color="transparent")
+        content_frame.grid(row=3, column=0, pady=5, padx=15, sticky="nsew")
+        content_frame.grid_rowconfigure(0, weight=1)
+        content_frame.grid_columnconfigure(0, weight=3)  # файлы — 3/5
+        content_frame.grid_columnconfigure(1, weight=2)  # превью — 2/5
 
-        self.file_textbox = ctk.CTkTextbox(list_frame, font=ctk.CTkFont(size=12),
+        # Список файлов (слева)
+        self.file_textbox = ctk.CTkTextbox(content_frame, font=ctk.CTkFont(size=12),
                                             fg_color=COLORS["surface"],
                                             text_color=COLORS["text"])
-        self.file_textbox.grid(row=0, column=0, sticky="nsew")
+        self.file_textbox.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
         self.file_textbox.configure(state="disabled")
+        self.file_textbox.bind("<Button-1>", self._on_file_list_click)
+
+        # Панель предпросмотра (справа)
+        self.preview_frame = ctk.CTkFrame(content_frame, fg_color=COLORS["surface"])
+        self.preview_frame.grid(row=0, column=1, sticky="nsew")
+        self.preview_frame.grid_rowconfigure(1, weight=1)  # изображение тянется
+        self.preview_frame.grid_columnconfigure(0, weight=1)
+
+        # Заголовок превью
+        preview_header = ctk.CTkLabel(
+            self.preview_frame, text="👁 Предпросмотр",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=COLORS["accent"],
+        )
+        preview_header.grid(row=0, column=0, pady=(8, 2), padx=8, sticky="w")
+
+        # Область для миниатюры
+        self.preview_image_label = ctk.CTkLabel(
+            self.preview_frame, text="",
+            fg_color=COLORS["surface2"],
+            corner_radius=8,
+        )
+        self.preview_image_label.grid(row=1, column=0, pady=4, padx=8, sticky="nsew")
+        self.preview_image_label.bind("<Configure>", self._on_preview_resize)
+
+        # Навигация + инфо
+        nav_frame = ctk.CTkFrame(self.preview_frame, fg_color="transparent")
+        nav_frame.grid(row=2, column=0, pady=(4, 0), padx=8, sticky="ew")
+        nav_frame.grid_columnconfigure(0, weight=0)
+        nav_frame.grid_columnconfigure(1, weight=1)
+        nav_frame.grid_columnconfigure(2, weight=0)
+
+        self.preview_prev_btn = ctk.CTkButton(
+            nav_frame, text="◀", width=30, fg_color=COLORS["surface2"],
+            text_color=COLORS["text"], command=self._preview_prev,
+        )
+        self.preview_prev_btn.grid(row=0, column=0, padx=(0, 4))
+
+        self.preview_name_label = ctk.CTkLabel(
+            nav_frame, text="—", text_color=COLORS["accent"],
+            font=ctk.CTkFont(size=11),
+        )
+        self.preview_name_label.grid(row=0, column=1, sticky="w")
+
+        self.preview_next_btn = ctk.CTkButton(
+            nav_frame, text="▶", width=30, fg_color=COLORS["surface2"],
+            text_color=COLORS["text"], command=self._preview_next,
+        )
+        self.preview_next_btn.grid(row=0, column=2, padx=(4, 0))
+
+        # Информация о файле
+        self.preview_info_label = ctk.CTkLabel(
+            self.preview_frame, text="",
+            text_color=COLORS["text2"], anchor="w", justify="left",
+            font=ctk.CTkFont(size=11),
+        )
+        self.preview_info_label.grid(row=3, column=0, pady=(4, 8), padx=8, sticky="ew")
 
         # ── Кнопки ──
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -251,6 +314,163 @@ class ConvApp(ctk.CTk):
         self.after(100, self._check_tools_background)
 
         log.debug("UI построен")
+
+    # ── Предпросмотр ──────────────────────────────────────────────────
+
+    def _on_file_list_click(self, event):
+        """Клик по списку файлов — выбираем файл для превью."""
+        if not self.file_paths:
+            return
+        # Определяем строку по координате Y
+        line_height = 18  # приблизительно
+        y = int(event.y / line_height) - 1  # -1 за заголовок
+        if 0 <= y < len(self.file_paths):
+            self.preview_index = y
+            self._update_preview()
+
+    def _on_preview_resize(self, event):
+        """Перерисовка превью при изменении размера панели."""
+        if self._preview_thumb is not None and self.preview_index < len(self.file_paths):
+            self._show_preview_image(self.file_paths[self.preview_index])
+
+    def _preview_prev(self):
+        if self.file_paths and self.preview_index > 0:
+            self.preview_index -= 1
+            self._update_preview()
+
+    def _preview_next(self):
+        if self.file_paths and self.preview_index < len(self.file_paths) - 1:
+            self.preview_index += 1
+            self._update_preview()
+
+    def _update_preview(self):
+        """Обновляет панель предпросмотра для текущего файла."""
+        if not self.file_paths:
+            self.preview_image_label.configure(image="", text="Нет файлов")
+            self.preview_name_label.configure(text="—")
+            self.preview_info_label.configure(text="")
+            self._preview_thumb = None
+            self.preview_prev_btn.configure(state="disabled")
+            self.preview_next_btn.configure(state="disabled")
+            return
+
+        # Индекс
+        if self.preview_index >= len(self.file_paths):
+            self.preview_index = len(self.file_paths) - 1
+
+        idx = self.preview_index
+        path = self.file_paths[idx]
+
+        # Навигация
+        self.preview_prev_btn.configure(state="normal" if idx > 0 else "disabled")
+        self.preview_next_btn.configure(state="normal" if idx < len(self.file_paths) - 1 else "disabled")
+        self.preview_name_label.configure(text=f"  {idx + 1}/{len(self.file_paths)}  {path.name}")
+
+        # Превью изображения
+        self._show_preview_image(path)
+
+        # Информация
+        self._show_preview_info(path)
+
+    def _show_preview_image(self, path: Path):
+        """Показывает миниатюру изображения/видео."""
+        ext = path.suffix.lower()
+        is_image = ext not in VIDEO_INPUT | AUDIO_INPUT
+
+        if not is_image:
+            # Для видео/аудио — иконка типа
+            sym = "🎬" if ext in VIDEO_INPUT else "🎵"
+            label = f"{sym}\n\n{path.suffix.upper()}\n(предпросмотр недоступен)"
+            self.preview_image_label.configure(
+                image="", text=label,
+                text_color=COLORS["text3"],
+                font=ctk.CTkFont(size=24),
+            )
+            self._preview_thumb = None
+            return
+
+        try:
+            from PIL import Image as PILImage
+
+            img = PILImage.open(path)
+
+            # Достаём размер панели
+            pw = self.preview_image_label.winfo_width() or 280
+            ph = self.preview_image_label.winfo_height() or 200
+            thumb_size = min(pw - 16, ph - 16, 280)
+            thumb_size = max(thumb_size, 80)
+
+            # Ресайз с сохранением пропорций
+            img.thumbnail((thumb_size, thumb_size), PILImage.LANCZOS)
+
+            # Конвертируем в RGB если нужно
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+
+            ctk_img = ctk.CTkImage(
+                light_image=img, dark_image=img,
+                size=(img.width, img.height),
+            )
+            self._preview_thumb = ctk_img
+            self.preview_image_label.configure(
+                image=ctk_img, text="",
+            )
+        except Exception as e:
+            log.debug("Ошибка превью: %s", e)
+            self.preview_image_label.configure(
+                image="", text=f"❌\n{e!s:.40}",
+                text_color=COLORS["error"],
+                font=ctk.CTkFont(size=14),
+            )
+            self._preview_thumb = None
+
+    def _show_preview_info(self, path: Path):
+        """Показывает информацию о файле."""
+        ext = path.suffix.lower()
+        src_size = _size(path)
+        size_str = fmt_size(src_size)
+
+        # Тип
+        if ext in VIDEO_INPUT:
+            type_str = f"🎬 Видео  •  {ext.upper()}"
+        elif ext in AUDIO_INPUT:
+            type_str = f"🎵 Аудио  •  {ext.upper()}"
+        elif ext in SVG_INPUT:
+            type_str = f"🖼 SVG  •  {ext.upper()}"
+        else:
+            type_str = f"🖼 Изображение  •  {ext.upper()}"
+
+        # Размер файла
+        lines = [type_str, f"📦 {size_str}"]
+
+        # Размеры изображения
+        if ext not in VIDEO_INPUT | AUDIO_INPUT:
+            try:
+                from PIL import Image as PILImage
+                with PILImage.open(path) as img:
+                    w, h = img.size
+                    lines.append(f"📐 {w}×{h}px")
+                    if hasattr(img, 'format') and img.format:
+                        lines.append(f"🧩 {img.format}")
+            except Exception:
+                pass
+
+        # Целевой формат
+        fmt_raw = self.fmt_var.get()
+        fmt_global = "" if fmt_raw == "Авто" else fmt_raw.split(" — ")[0]
+        target_fmt = fmt_global if fmt_global else resolve_fmt('', ext)
+        quality = self.quality_var.get()
+        max_size = self.size_entry.get() or "0"
+        lines.append(f"→ .{target_fmt}  (q={quality}, s={max_size})")
+
+        # Результат конвертации (если есть)
+        res = self.file_results.get(path)
+        if res and res.ok:
+            dst_size = fmt_size(res.dst_size)
+            ratio = res.dst_size / res.src_size * 100 if res.src_size > 0 else 0
+            lines.append(f"✅ {dst_size}  ({ratio:.0f}%)  — {res.fmt_took()}")
+
+        self.preview_info_label.configure(text="\n".join(lines))
 
     # ── Качество ──
 
@@ -329,6 +549,7 @@ class ConvApp(ctk.CTk):
                 existing.add(p)
         self._refresh_file_list()
         self._update_buttons()
+        self._update_preview()
 
     def _remove_file(self, path: Path):
         if self.is_running:
@@ -349,6 +570,8 @@ class ConvApp(ctk.CTk):
         self.status_var.set("Ожидание файлов...")
         self.stats_var.set("")
         self.progress_bar.set(0)
+        self.preview_index = 0
+        self._update_preview()
         log.info("Список очищен")
 
     def _refresh_file_list(self):
