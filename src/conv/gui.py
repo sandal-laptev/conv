@@ -15,6 +15,7 @@ from conv.core import (
     ConvertRequest,
     ConvertResult,
     OUTPUT_FORMATS,
+    QUALITY_PRESETS,
     VIDEO_INPUT,
     AUDIO_INPUT,
     ALL_INPUT,
@@ -127,33 +128,44 @@ class ConvApp(ctk.CTk):
         params_frame.grid(row=2, column=0, pady=(5, 0), padx=15, sticky="ew")
         params_frame.grid_columnconfigure((0, 1, 2), weight=1)
 
+        # Пресет
+        ctk.CTkLabel(params_frame, text="Пресет:", text_color=COLORS["text2"]).grid(
+            row=0, column=0, sticky="w")
+        preset_options = [f"{v.label} — {v.description}" for v in QUALITY_PRESETS.values()] + ["— Кастом"]
+        self.preset_var = ctk.StringVar(value=preset_options[1])  # web по умолчанию
+        preset_menu = ctk.CTkOptionMenu(params_frame, variable=self.preset_var,
+                                          values=preset_options, width=300)
+        preset_menu.grid(row=1, column=0, sticky="w", padx=(0, 10))
+        preset_menu.configure(command=self._on_preset_change)
+
         # Формат
         fmt_options = ["Авто"] + [f"{k} — {v['desc']}" for k, v in OUTPUT_FORMATS.items()]
         self.fmt_var = ctk.StringVar(value="Авто")
         ctk.CTkLabel(params_frame, text="Формат:", text_color=COLORS["text2"]).grid(
-            row=0, column=0, sticky="w")
+            row=0, column=1, sticky="w")
         fmt_menu = ctk.CTkOptionMenu(params_frame, variable=self.fmt_var,
                                        values=fmt_options, width=160)
-        fmt_menu.grid(row=1, column=0, sticky="w", padx=(0, 10))
+        fmt_menu.grid(row=1, column=1, sticky="w", padx=(0, 10))
 
         # Качество
         ctk.CTkLabel(params_frame, text="Качество:", text_color=COLORS["text2"]).grid(
-            row=0, column=1, sticky="w")
-        self.quality_var = ctk.IntVar(value=85)
+            row=0, column=2, sticky="w")
+        self.quality_var = ctk.IntVar(value=80)
         quality_slider = ctk.CTkSlider(params_frame, variable=self.quality_var,
                                         from_=1, to=100, number_of_steps=99, width=160)
-        quality_slider.grid(row=1, column=1, sticky="w", padx=(0, 10))
-        self.quality_label = ctk.CTkLabel(params_frame, text="85%", width=40,
+        quality_slider.grid(row=1, column=2, sticky="w", padx=(0, 10))
+        self.quality_label = ctk.CTkLabel(params_frame, text="80%", width=40,
                                            text_color=COLORS["accent"])
-        self.quality_label.grid(row=1, column=1, sticky="e", padx=(0, 10))
+        self.quality_label.grid(row=1, column=2, sticky="e", padx=(0, 10))
         quality_slider.configure(command=self._on_quality_change)
 
-        # Макс. размер
+        # Макс. размер (row 2)
         ctk.CTkLabel(params_frame, text="Макс. px (0 = ориг):",
-                     text_color=COLORS["text2"]).grid(row=0, column=2, sticky="w")
+                     text_color=COLORS["text2"]).grid(row=2, column=1, sticky="w")
         self.size_entry = ctk.CTkEntry(params_frame, width=100, placeholder_text="0")
-        self.size_entry.grid(row=1, column=2, sticky="w")
-        self.size_entry.insert(0, "0")
+        self.size_entry.grid(row=2, column=2, sticky="w", padx=(0, 10))
+        self.size_entry.insert(0, "1920")
+        self.size_entry.bind("<KeyRelease>", self._on_size_change)
 
         # ── Список файлов (скроллируемый) ──
         list_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -233,6 +245,31 @@ class ConvApp(ctk.CTk):
 
     def _on_quality_change(self, value):
         self.quality_label.configure(text=f"{int(value)}%")
+        # Пользователь тронул качество вручную — сбрасываем пресет на кастом
+        self._unset_preset()
+
+    def _on_size_change(self, *_):
+        # Пользователь изменил размер вручную — сбрасываем пресет
+        self._unset_preset()
+
+    def _unset_preset(self):
+        """Сбрасывает пресет на 'Кастом', если был выбран именованный."""
+        current = self.preset_var.get()
+        # Если в тексте есть тире — значит это именованный пресет, а не 'Кастом'
+        if current != '— Кастом':
+            self.preset_var.set('— Кастом')
+
+    def _on_preset_change(self, choice: str):
+        """Выбран пресет — применяем его параметры."""
+        for p in QUALITY_PRESETS.values():
+            label_prefix = f"{p.label} — "
+            if choice.startswith(label_prefix):
+                self.quality_var.set(p.quality)
+                self.quality_label.configure(text=f"{p.quality}%")
+                self.size_entry.delete(0, "end")
+                self.size_entry.insert(0, str(p.max_size))
+                log.info("Пресет: %s (q=%d, s=%d)", p.label, p.quality, p.max_size)
+                return
 
     # ── Выбор файлов ──
 

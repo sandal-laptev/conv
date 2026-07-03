@@ -13,6 +13,7 @@ from conv.core import (
     ALL_INPUT,
     VIDEO_INPUT,
     AUDIO_INPUT,
+    QUALITY_PRESETS,
     resolve_format as resolve_fmt,
     _fmt_size,
     _fmt_time,
@@ -39,6 +40,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help='Качество 1-100', metavar='N')
     p.add_argument('-s', '--size', type=int, default=0,
                    help='Макс. ширина/высота для изображений (0 = оригинал)', metavar='PX')
+    p.add_argument('--preset', default='',
+                   choices=list(QUALITY_PRESETS.keys()),
+                   help='Пресет качества (переопределяет -q и -s)')
     p.add_argument('-r', '--recursive', action='store_true',
                    help='Рекурсивный обход папок')
     p.add_argument('-j', '--jobs', type=int, default=0,
@@ -76,13 +80,23 @@ def main(argv: list[str] | None = None) -> int:
         out_dir.mkdir(parents=True, exist_ok=True)
     log.info("Выходная папка: %s", out_dir)
 
-    quality = max(1, min(100, args.quality))
-    max_size = max(0, args.size)
+    # ── Пресет ──
+    preset_name = args.preset
+    if preset_name and preset_name in QUALITY_PRESETS:
+        preset = QUALITY_PRESETS[preset_name]
+        quality = max(1, min(100, preset.quality))
+        max_size = max(0, preset.max_size)
+        log.info("Пресет качества: %s (q=%d, s=%d)", preset.label, quality, max_size)
+    else:
+        quality = max(1, min(100, args.quality))
+        max_size = max(0, args.size)
 
     # ── Инфо ──
     print(f"\n  🖧  Иохим Кузьмич — Медиа-конвертер  🖧\n")
     print(f"  Файлов:     {len(files)}")
     print(f"  Выход:      {out_dir}")
+    if preset_name:
+        print(f"  Пресет:     {QUALITY_PRESETS[preset_name].label}")
     print(f"  Качество:   {quality}")
     if max_size:
         print(f"  Макс.размер: {max_size}px")

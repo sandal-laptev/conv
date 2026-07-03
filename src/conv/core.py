@@ -84,6 +84,36 @@ DEFAULT_OUTPUT: dict[str, str] = {
 }
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Пресеты качества
+# ──────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class QualityPreset:
+    """Пресет качества — именованный набор параметров."""
+    name: str
+    label: str
+    quality: int        # 1–100
+    max_size: int       # px, 0 = оригинал
+    description: str
+
+
+QUALITY_PRESETS: dict[str, QualityPreset] = {
+    'max': QualityPreset(
+        name='max', label='Макс.', quality=95, max_size=0,
+        description='Максимальное качество, без сжатия',
+    ),
+    'web': QualityPreset(
+        name='web', label='Для веба', quality=80, max_size=1920,
+        description='Оптимизация для веба, до 1920px',
+    ),
+    'fast': QualityPreset(
+        name='fast', label='Быстрый', quality=60, max_size=1024,
+        description='Быстрая конвертация, меньший размер',
+    ),
+}
+
+
 def detect_mime(ext: str) -> str:
     ext = ext.lower()
     if ext in IMAGE_INPUT | SVG_INPUT:
@@ -628,6 +658,7 @@ __all__ = [
     'OUTPUT_FORMATS', 'ALL_INPUT',
     'IMAGE_INPUT', 'SVG_INPUT', 'VIDEO_INPUT', 'AUDIO_INPUT',
     'detect_mime', 'resolve_format',
+    'QualityPreset', 'QUALITY_PRESETS',
     'get_tool_path',
 ]
 
