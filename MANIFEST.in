@@ -1,0 +1,4 @@
+include man/conv.1
+include README.md
+include LICENSE
+include ROADMAP.md

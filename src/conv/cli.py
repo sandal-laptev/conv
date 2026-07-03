@@ -48,6 +48,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help='Рекурсивный обход папок')
     p.add_argument('-j', '--jobs', type=int, default=0,
                    help='Число параллельных задач (0 = авто)', metavar='N')
+    p.add_argument('--man', action='store_true',
+                   help='Показать man-страницу')
     p.add_argument('--completion', choices=['bash', 'zsh'],
                    help='Вывести скрипт автодополнения для указанной оболочки')
     p.add_argument('--check-tools', action='store_true',
@@ -199,6 +201,23 @@ _conv
 '''
 
 
+def _print_man() -> None:
+    """Показывает man-страницу."""
+    import shutil
+    man_path = Path(__file__).resolve().parent.parent.parent / 'man' / 'conv.1'
+    if not man_path.exists():
+        print(f"⚠ man-страница не найдена: {man_path}", file=sys.stderr)
+        sys.exit(1)
+
+    # Если man доступен — показываем отформатированным
+    if shutil.which('man'):
+        import subprocess as sp
+        sp.run(['man', '-l', str(man_path)])
+    else:
+        # Иначе печатаем raw troff
+        sys.stdout.write(man_path.read_text(encoding='utf-8'))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -217,6 +236,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.completion:
         _print_completion(args.completion)
+        return 0
+
+    if args.man:
+        _print_man()
         return 0
 
     input_paths = [Path(p) for p in args.input] if args.input else [Path.cwd()]
