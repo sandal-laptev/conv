@@ -11,6 +11,8 @@ from conv.core import (
     AUDIO_INPUT,
     SVG_INPUT,
     VIDEO_INPUT,
+    MediaInfo,
+    get_media_info,
     resolve_format as resolve_fmt,
 )
 from conv.gui.theme import COLORS, file_size, fmt_size
@@ -137,11 +139,22 @@ class PreviewPanel(ctk.CTkFrame):
 
         if not is_image:
             sym = "🎬" if ext in VIDEO_INPUT else "🎵"
+            # Показываем информацию с иконкой в центре
+            info = get_media_info(path)
+            lines = [f"{sym}", ext.upper()]
+            if info.duration:
+                lines.append(info.fmt_duration())
+            if info.resolution_str:
+                lines.append(info.resolution_str)
+            if info.video_codec:
+                lines.append(info.video_codec)
+            if info.audio_codec:
+                lines.append(f"{info.audio_codec}  {info.audio_channels}ch")
             self._image_label.configure(
                 image="",
-                text=f"{sym}\n\n{ext.upper()}\n(предпросмотр недоступен)",
+                text="\n".join(lines),
                 text_color=COLORS["text3"],
-                font=ctk.CTkFont(size=24),
+                font=ctk.CTkFont(size=20),
             )
             self._thumb = None
             return
@@ -205,11 +218,32 @@ class PreviewPanel(ctk.CTkFrame):
 
         lines.append(f"📦 {fmt_size(src_size)}")
 
-        # Размеры изображения
-        if ext not in VIDEO_INPUT | AUDIO_INPUT and HAS_PIL and PILImage:
+        if ext in VIDEO_INPUT | AUDIO_INPUT:
+            # Медиа-инфо через ffprobe
+            info = get_media_info(path)
+            if info.duration:
+                lines.append(f"⏱ {info.fmt_duration()}")
+            if info.bit_rate:
+                lines.append(f"📊 {info.fmt_bitrate()}")
+            if info.has_video:
+                parts = [f"🎞 {info.video_codec}"]
+                if info.resolution_str:
+                    parts.append(info.resolution_str)
+                if info.fps:
+                    parts.append(f"{info.fps:.0f}fps")
+                lines.append("  ".join(parts))
+            if info.has_audio:
+                parts = [f"🎵 {info.audio_codec}"]
+                ch_map = {'1': 'моно', '2': 'стерео', '6': '5.1', '8': '7.1'}
+                parts.append(ch_map.get(str(info.audio_channels), f'{info.audio_channels}ch'))
+                if info.sample_rate:
+                    parts.append(f"{info.sample_rate // 1000}kHz")
+                lines.append("  ".join(parts))
+        elif HAS_PIL and PILImage:
+            # Размеры изображения
             try:
                 with PILImage.open(path) as img:
-                    lines.append(f"📐 {img.width}×{img.height}px")
+                    lines.append(f"📐 {img.width}\u00d7{img.height}px")
                     if img.format:
                         lines.append(f"🧩 {img.format}")
             except Exception:

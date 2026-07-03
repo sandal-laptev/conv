@@ -215,6 +215,109 @@ ProgressCallback = Callable[[int, int, ConvertResult], None]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Медиа-информация
+# ──────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class MediaInfo:
+    """Информация о медиафайле (из ffprobe)."""
+    duration: float = 0.0       # секунды
+    bit_rate: int = 0            # бит/с
+    video_codec: str = ''       # h264, hevc, vp9...
+    audio_codec: str = ''       # aac, mp3, opus...
+    width: int = 0
+    height: int = 0
+    fps: float = 0.0
+    audio_channels: int = 0
+    sample_rate: int = 0
+
+    @property
+    def has_video(self) -> bool:
+        return bool(self.video_codec)
+
+    @property
+    def has_audio(self) -> bool:
+        return bool(self.audio_codec)
+
+    @property
+    def resolution_str(self) -> str:
+        if self.width and self.height:
+            return f"{self.width}\u00d7{self.height}"
+        return ""
+
+    def fmt_duration(self) -> str:
+        return _fmt_time(self.duration)
+
+    def fmt_bitrate(self) -> str:
+        if self.bit_rate:
+            return f"{_fmt_size(self.bit_rate)}/с"
+        return ""
+
+
+def get_media_info(path: Path) -> MediaInfo:
+    """Извлекает информацию о медиафайле через ffprobe.
+
+    Возвращает MediaInfo с доступными полями. Если ffprobe не найден
+    или файл не читается — все поля будут пустыми/нулевыми.
+    """
+    info = MediaInfo()
+
+    try:
+        # Потоки
+        r = subprocess.run(
+            ['ffprobe', '-v', 'error',
+             '-of', 'json',
+             '-show_entries',
+             'stream=codec_type,codec_name,width,height,'
+             'r_frame_rate,channels,sample_rate',
+             '-show_entries', 'format=duration,bit_rate',
+             str(path)],
+            capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode != 0:
+            return info
+
+        import json
+        data = json.loads(r.stdout)
+
+        # Формат
+        fmt = data.get('format', {})
+        dur = fmt.get('duration')
+        if dur:
+            info.duration = float(dur)
+        br = fmt.get('bit_rate')
+        if br:
+            info.bit_rate = int(br)
+
+        # Потоки
+        for stream in data.get('streams', []):
+            ctype = stream.get('codec_type')
+            if ctype == 'video':
+                info.video_codec = stream.get('codec_name', '')
+                info.width = stream.get('width', 0) or 0
+                info.height = stream.get('height', 0) or 0
+                fps_str = stream.get('r_frame_rate', '')
+                if fps_str and '/' in fps_str:
+                    try:
+                        num, den = fps_str.split('/')
+                        info.fps = float(num) / float(den) if float(den) > 0 else 0
+                    except (ValueError, ZeroDivisionError):
+                        pass
+            elif ctype == 'audio':
+                info.audio_codec = stream.get('codec_name', '')
+                info.audio_channels = stream.get('channels', 0) or 0
+                sr = stream.get('sample_rate')
+                if sr:
+                    info.sample_rate = int(sr)
+
+    except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError,
+            OSError, ValueError):
+        pass
+
+    return info
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Ядро конвертации
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -662,6 +765,7 @@ __all__ = [
     'IMAGE_INPUT', 'SVG_INPUT', 'VIDEO_INPUT', 'AUDIO_INPUT',
     'detect_mime', 'resolve_format',
     'QualityPreset', 'QUALITY_PRESETS',
+    'MediaInfo', 'get_media_info',
     'get_tool_path',
 ]
 

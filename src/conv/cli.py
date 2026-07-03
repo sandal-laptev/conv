@@ -15,6 +15,8 @@ from conv.core import (
     AUDIO_INPUT,
     SVG_INPUT,
     QUALITY_PRESETS,
+    MediaInfo,
+    get_media_info,
     resolve_format as resolve_fmt,
     _fmt_size,
     _fmt_time,
@@ -54,6 +56,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help='Вывести скрипт автодополнения для указанной оболочки')
     p.add_argument('--check-tools', action='store_true',
                    help='Проверить доступность инструментов и выйти')
+    p.add_argument('--info', action='store_true',
+                   help='Показать информацию о медиафайлах (ffprobe) и выйти')
     p.add_argument('--dry-run', action='store_true',
                    help='Только показать, что будет конвертироваться')
     p.add_argument('--version', action='version',
@@ -218,6 +222,57 @@ def _print_man() -> None:
         sys.stdout.write(man_path.read_text(encoding='utf-8'))
 
 
+def _print_media_info(files: list[Path]) -> None:
+    """Выводит информацию о медиафайлах."""
+    print("\n  🖧  Медиа-информация  🖧\n")
+    for f in files:
+        ext = f.suffix.lower()
+        sym = '🖼' if ext not in VIDEO_INPUT | AUDIO_INPUT else \
+              '🎬' if ext in VIDEO_INPUT else '🎵'
+        print(f"  {sym}  {f.name}")
+        print(f"      📦 {_fmt_size(_try_size(f))}")
+
+        if ext in VIDEO_INPUT | AUDIO_INPUT:
+            info = get_media_info(f)
+            if info.duration:
+                print(f"      ⏱ Длит.: {info.fmt_duration()}")
+            if info.bit_rate:
+                print(f"      📊 Битрейд: {info.fmt_bitrate()}")
+            if info.has_video:
+                parts = [f"      🎞 {info.video_codec}"]
+                if info.resolution_str:
+                    parts.append(info.resolution_str)
+                if info.fps:
+                    parts.append(f"{info.fps:.0f} fps")
+                print("  ".join(parts))
+            if info.has_audio:
+                parts = [f"      🎵 {info.audio_codec}"]
+                if info.audio_channels:
+                    ch = {'1': 'моно', '2': 'стерео', '6': '5.1', '8': '7.1'}
+                    parts.append(ch.get(str(info.audio_channels), f'{info.audio_channels}ch'))
+                if info.sample_rate:
+                    parts.append(f"{info.sample_rate // 1000}kHz")
+                print("  ".join(parts))
+        else:
+            # Изображение — пробуем размеры
+            try:
+                from PIL import Image
+                with Image.open(f) as img:
+                    print(f"      📐 {img.width}\u00d7{img.height}")
+            except Exception:
+                pass
+        print()
+
+
+# ── Хелпер ──
+
+def _try_size(path: Path) -> int:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -244,6 +299,10 @@ def main(argv: list[str] | None = None) -> int:
 
     input_paths = [Path(p) for p in args.input] if args.input else [Path.cwd()]
     files = converter.collect(input_paths, recursive=args.recursive)
+
+    if args.info:
+        _print_media_info(files)
+        return 0
 
     log.info("Собрано файлов: %d", len(files))
 
