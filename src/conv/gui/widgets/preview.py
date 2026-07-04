@@ -74,6 +74,7 @@ class PreviewPanel(ctk.CTkFrame):
         self._media_duration: float = 0.0
         self._trim_values: dict[Path, tuple[float, float]] = {}
         self._thumb_dir = Path(tempfile.mkdtemp(prefix="conv_thumbs_"))
+        self._last_show_params: dict = {}
         self.bind("<Destroy>", self._cleanup_thumbs)
 
         # Строки сетки: 0-header, 1-thumb, 2-nav, 3-info, 4-trim-header, 5-trim
@@ -227,6 +228,10 @@ class PreviewPanel(ctk.CTkFrame):
              fmt_var: str, quality: int, max_size: int,
              result_size: int = 0, result_time: str = ""):
         """Обновить превью для указанного файла."""
+        self._last_show_params = dict(
+            fmt_var=fmt_var, quality=quality, max_size=max_size,
+            result_size=result_size, result_time=result_time,
+        )
         self._cleanup_thumb_file()
         self._current_path = path
 
@@ -310,7 +315,10 @@ class PreviewPanel(ctk.CTkFrame):
         self._end_slider.set(max(0, min(end_sec or dur, dur)))
 
     def _apply_trim(self, ts: float, te: float):
-        """Применить trim-значения: сохранить, обновить UI, коллбэк."""
+        """Применить trim-значения: сохранить, обновить UI, коллбэк.
+        Внимание: НЕ вызываем show()/get_media_info/_extract_video_thumb —
+        они синхронные и вешают GUI. Обновляем только легковесные элементы.
+        """
         if not self._current_path:
             return
         self._trim_values[self._current_path] = (ts, te)
@@ -318,6 +326,8 @@ class PreviewPanel(ctk.CTkFrame):
         self._end_var.set(fmt_trim(te) if te > 0 else "")
         self._timeline.set_trim(ts, te)
         self._update_trim_display()
+        # Обновляем инфо-текст (без ffmpeg/ffprobe)
+        self._refresh_info()
         if self._on_trim_changed:
             self._on_trim_changed(self._current_path)
 
@@ -565,6 +575,18 @@ class PreviewPanel(ctk.CTkFrame):
             lines.append(f"✅ {fmt_size(result_size)}  ({ratio:.0f}%)  — {result_time}")
 
         self._info_label.configure(text="\n".join(lines))
+
+    def _refresh_info(self):
+        """Легковесное обновление info-текста (без ffmpeg/ffprobe)."""
+        if self._current_path and self._last_show_params:
+            self._show_info(
+                self._current_path,
+                self._last_show_params.get("fmt_var", ""),
+                self._last_show_params.get("quality", 0),
+                self._last_show_params.get("max_size", 0),
+                self._last_show_params.get("result_size", 0),
+                self._last_show_params.get("result_time", ""),
+            )
 
     # ── Навигация ──
 
