@@ -262,9 +262,10 @@ class PreviewPanel(ctk.CTkFrame):
             self._show_trim()
             # Timeline + фейдеры + точный ввод
             ts, te = self._trim_values.get(path, (0.0, 0.0))
-            self._timeline.set_file(path)
-            self._update_sliders(ts, te)
+            if self._timeline._current_path != path:
+                self._timeline.set_file(path)
             self._timeline.set_trim(ts, te)
+            self._update_sliders(ts, te)
             self._start_var.set(fmt_trim(ts) if ts > 0 else "")
             self._end_var.set(fmt_trim(te) if te > 0 else "")
             self._update_trim_display()
