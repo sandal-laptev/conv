@@ -52,8 +52,10 @@ pyinstaller --onefile --windowed ^
     --hidden-import conv.logger ^
     --hidden-import pillow_heif ^
     --hidden-import PIL._tkinter_finder ^
+    --hidden-import pillow_heif.register_heif_opener ^
     --collect-all customtkinter ^
     --collect-all pillow_heif ^
+    --collect-binaries pillow_heif ^
     scripts\entry_gui.py
 
 REM CLI version

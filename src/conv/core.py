@@ -428,7 +428,7 @@ class Converter:
                 from pillow_heif import register_heif_opener  # noqa
                 register_heif_opener()
                 self._heif_available = True
-            except ImportError:
+            except Exception:
                 self._heif_available = False
         return self._heif_available
 
