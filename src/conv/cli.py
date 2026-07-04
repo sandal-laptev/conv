@@ -56,6 +56,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help='Вывести скрипт автодополнения для указанной оболочки')
     p.add_argument('--check-tools', action='store_true',
                    help='Проверить доступность инструментов и выйти')
+    p.add_argument('--trim-start', type=float, default=0.0, metavar='S',
+                   help='Начало обрезки в секундах (0 = с начала)')
+    p.add_argument('--trim-end', type=float, default=0.0, metavar='S',
+                   help='Конец обрезки в секундах (0 = до конца)')
     p.add_argument('--info', action='store_true',
                    help='Показать информацию о медиафайлах (ffprobe) и выйти')
     p.add_argument('--dry-run', action='store_true',
@@ -127,7 +131,7 @@ _conv_completions() {{
     # Список всех флагов
     local opts="-o --output -f --format -q --quality -s --size"
     opts+=" --preset -r --recursive -j --jobs --check-tools --dry-run"
-    opts+=" --version -h --help --completion"
+    opts+=" --trim-start --trim-end --version -h --help --completion"
 
     case $prev in
         -o|--output)
@@ -194,6 +198,8 @@ _conv() {{
         "--jobs[Параллельных задач]:jobs:(1 2 4 8 16)"
         "--check-tools[Проверить инструменты]"
         "--dry-run[Только предпросмотр]"
+        "--trim-start[Начало обрезки, с]:seconds:"
+        "--trim-end[Конец обрезки, с]:seconds:"
         "--completion[Скрипт дополнения]:shell:(bash zsh)"
         "--version[Версия]"
         "-h[Справка]"
@@ -371,6 +377,8 @@ def main(argv: list[str] | None = None) -> int:
             max_size=max_size,
             preserve_structure=args.recursive,
             dry_run=args.dry_run,
+            trim_start=args.trim_start,
+            trim_end=args.trim_end,
         ))
 
     # ── DRY RUN ──

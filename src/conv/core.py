@@ -150,6 +150,8 @@ class ConvertRequest:
     max_size: int = 0                # 0 = оригинал, для изображений
     preserve_structure: bool = False # сохранять подпапки при рекурсии
     dry_run: bool = False
+    trim_start: float = 0.0           # с (0 = с начала)
+    trim_end: float = 0.0             # с (0 = до конца)
 
     @property
     def rel_dir(self) -> Path:
@@ -532,8 +534,10 @@ class Converter:
         fmt = resolve_format(req.output_format, ext)
         mime = detect_mime(ext)
 
-        log.info("Конвертация: %s (%s) → %s [fmt=%s, q=%d, max=%d]",
-                 req.input_path.name, ext, out_path.name, fmt, req.quality, req.max_size)
+        log.info("Конвертация: %s (%s) → %s [fmt=%s, q=%d, max=%d, trim=%s/%s]",
+                 req.input_path.name, ext, out_path.name, fmt, req.quality,
+                 req.max_size, _fmt_time(req.trim_start) if req.trim_start else "-",
+                 _fmt_time(req.trim_end) if req.trim_end else "-")
 
         err: Optional[str] = None
 
@@ -546,10 +550,16 @@ class Converter:
                 err = self._convert_image(req.input_path, out_path, fmt, req.quality, req.max_size)
             elif mime == 'video':
                 log.debug("Конвертер: ffmpeg видео")
-                err = self._convert_video(req.input_path, out_path, fmt, req.quality)
+                err = self._convert_video(
+                    req.input_path, out_path, fmt, req.quality,
+                    req.trim_start, req.trim_end,
+                )
             elif mime == 'audio':
                 log.debug("Конвертер: ffmpeg аудио")
-                err = self._convert_audio(req.input_path, out_path, fmt, req.quality)
+                err = self._convert_audio(
+                    req.input_path, out_path, fmt, req.quality,
+                    req.trim_start, req.trim_end,
+                )
             else:
                 err = f"Неподдерживаемый тип: {ext}"
         except Exception as e:
@@ -758,7 +768,20 @@ class Converter:
         """Путь к rsvg-convert (bundled / системный)."""
         return Converter._tool_path('rsvg-convert')
 
-    def _convert_video(self, src: Path, dst: Path, fmt_out: str, quality: int) -> Optional[str]:
+    @staticmethod
+    def _fmt_trim(seconds: float) -> str:
+        """Форматирует секунды для ffmpeg: HH:MM:SS.mmm."""
+        h = int(seconds // 3600)
+        m = int((seconds % 3600) // 60)
+        s = seconds % 60
+        if h > 0:
+            return f"{h:02d}:{m:02d}:{s:06.3f}"
+        return f"{m:02d}:{s:06.3f}"
+
+    def _convert_video(
+        self, src: Path, dst: Path, fmt_out: str, quality: int,
+        trim_start: float = 0.0, trim_end: float = 0.0,
+    ) -> Optional[str]:
         """Видео → ffmpeg."""
         crf = max(18, min(28, 28 - int((quality - 50) / 50 * 10)))
         ffmpeg = self._ffmpeg_path()
@@ -775,11 +798,19 @@ class Converter:
             vcodec, acodec = 'libvpx', 'libvorbis'
             extra = ['-b:v', '0', '-b:a', '128k']
 
-        cmd = [
-            ffmpeg, '-i', str(src),
+        # Обрезка: -ss до -i для быстрого поиска, -to после -i для точного конца
+        cmd: list[str] = []
+        if trim_start > 0:
+            cmd.extend([ffmpeg, '-ss', self._fmt_trim(trim_start)])
+        else:
+            cmd.append(ffmpeg)
+        cmd.extend(['-i', str(src)])
+        if trim_end > 0:
+            cmd.extend(['-to', self._fmt_trim(trim_end)])
+        cmd.extend([
             '-c:v', vcodec, '-preset', 'medium', '-crf', str(crf),
             '-c:a', acodec,
-        ] + extra + ['-b:a', '128k', '-y', str(dst)]
+        ] + extra + ['-b:a', '128k', '-y', str(dst)])
 
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)
@@ -793,7 +824,10 @@ class Converter:
             return "Таймаут ffmpeg (>2ч)"
         return None
 
-    def _convert_audio(self, src: Path, dst: Path, fmt_out: str, quality: int) -> Optional[str]:
+    def _convert_audio(
+        self, src: Path, dst: Path, fmt_out: str, quality: int,
+        trim_start: float = 0.0, trim_end: float = 0.0,
+    ) -> Optional[str]:
         """Аудио → ffmpeg."""
         lame_q = max(0, min(9, 9 - int(quality / 100 * 9)))
         ffmpeg = self._ffmpeg_path()
@@ -812,7 +846,16 @@ class Converter:
         elif fmt_out == 'opus':
             params = ['-codec:a', 'libopus', '-b:a', '128k']
 
-        cmd = [ffmpeg, '-i', str(src)] + params + ['-y', str(dst)]
+        # Обрезка: -ss до -i, -to после -i
+        cmd: list[str] = []
+        if trim_start > 0:
+            cmd.extend([ffmpeg, '-ss', self._fmt_trim(trim_start)])
+        else:
+            cmd.append(ffmpeg)
+        cmd.extend(['-i', str(src)])
+        if trim_end > 0:
+            cmd.extend(['-to', self._fmt_trim(trim_end)])
+        cmd.extend(params + ['-y', str(dst)])
 
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)

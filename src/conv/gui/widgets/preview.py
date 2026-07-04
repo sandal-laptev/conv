@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -41,6 +42,44 @@ if HAS_PIL:
     except ImportError:
         pass
 
+# ── Хелперы для времени ────────────────────────────────────────────────
+
+_TIME_RE = re.compile(
+    r"^(?:(\d+):)?(\d+):([\d.]+)$"   # HH:MM:SS.mmm  или  MM:SS.mmm
+)
+_FLOAT_RE = re.compile(r"^[\d.]+$")
+
+
+def _parse_time(text: str) -> float:
+    """Парсит время из строки: секунды, MM:SS или HH:MM:SS."""
+    text = text.strip()
+    if not text:
+        return 0.0
+
+    m = _TIME_RE.match(text)
+    if m:
+        h = int(m.group(1) or 0)
+        mm = int(m.group(2))
+        s = float(m.group(3))
+        return h * 3600 + mm * 60 + s
+
+    if _FLOAT_RE.match(text):
+        return float(text)
+
+    return 0.0
+
+
+def _fmt_trim(seconds: float) -> str:
+    """Форматирует секунды в MM:SS или HH:MM:SS."""
+    if seconds <= 0:
+        return "—"
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = seconds % 60
+    if h > 0:
+        return f"{h}:{m:02d}:{s:05.2f}"
+    return f"{m}:{s:05.2f}"
+
 
 class PreviewPanel(ctk.CTkFrame):
     """Миниатюра + навигация + информация о выбранном файле.
@@ -48,6 +87,7 @@ class PreviewPanel(ctk.CTkFrame):
     Сигналы:
       on_prev_clicked()
       on_next_clicked()
+      on_trim_changed(path)  — когда пользователь меняет обрезку
     """
 
     def __init__(
@@ -55,6 +95,7 @@ class PreviewPanel(ctk.CTkFrame):
         parent,
         on_prev: Callable | None = None,
         on_next: Callable | None = None,
+        on_trim_changed: Callable | None = None,
         **kwargs,
     ):
         super().__init__(parent, fg_color=COLORS["surface"], **kwargs)
@@ -63,11 +104,18 @@ class PreviewPanel(ctk.CTkFrame):
 
         self._on_prev = on_prev
         self._on_next = on_next
+        self._on_trim_changed = on_trim_changed
         self._thumb: ctk.CTkImage | None = None
         self._thumb_file: Path | None = None  # временный файл кадра видео
         self._has_file = False
+        self._current_path: Path | None = None
+        self._media_duration: float = 0.0
+        self._trim_values: dict[Path, tuple[float, float]] = {}
         self._thumb_dir = Path(tempfile.mkdtemp(prefix="conv_thumbs_"))
         self.bind("<Destroy>", self._cleanup_thumbs)
+
+        # Строки сетки: 0-header, 1-thumb, 2-nav, 3-info, 4-trim-header, 5-trim
+        # Навигация и инфо подстраиваются вниз
 
         # Заголовок
         ctk.CTkLabel(
@@ -111,13 +159,95 @@ class PreviewPanel(ctk.CTkFrame):
         )
         self._next_btn.grid(row=0, column=2, padx=(4, 0))
 
-        # Информация
+        # Информация о файле
+        self._info_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self._info_frame.grid(row=3, column=0, pady=(4, 2), padx=8, sticky="ew")
+        self._info_frame.grid_columnconfigure(0, weight=1)
+
         self._info_label = ctk.CTkLabel(
-            self, text="",
+            self._info_frame, text="",
             text_color=COLORS["text2"], anchor="w", justify="left",
             font=ctk.CTkFont(size=11),
         )
-        self._info_label.grid(row=3, column=0, pady=(4, 8), padx=8, sticky="ew")
+        self._info_label.grid(row=0, column=0, sticky="ew")
+
+        # ✂ Обрезка (trim)
+        self._trim_header = ctk.CTkFrame(self, fg_color="transparent")
+        self._trim_header.grid(row=4, column=0, pady=(4, 0), padx=8, sticky="ew")
+        self._trim_header.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            self._trim_header, text="✂ Обрезка",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLORS["accent2"],
+        ).grid(row=0, column=0, sticky="w")
+
+        # Панель управления обрезкой
+        self._trim_frame = ctk.CTkFrame(self, fg_color=COLORS["surface2"])
+        self._trim_frame.grid(row=5, column=0, pady=(2, 6), padx=8, sticky="ew")
+        self._trim_frame.grid_columnconfigure(0, weight=0)
+        self._trim_frame.grid_columnconfigure(1, weight=1)
+        self._trim_frame.grid_columnconfigure(2, weight=0)
+        self._trim_frame.grid_columnconfigure(3, weight=1)
+        self._trim_frame.grid_columnconfigure(4, weight=0)
+
+        # Start
+        ctk.CTkLabel(
+            self._trim_frame, text="Начало:",
+            font=ctk.CTkFont(size=11), text_color=COLORS["text2"],
+        ).grid(row=0, column=0, padx=(6, 2), pady=4, sticky="w")
+
+        self._start_var = ctk.StringVar(value="")
+        self._start_entry = ctk.CTkEntry(
+            self._trim_frame, textvariable=self._start_var,
+            width=70, font=ctk.CTkFont(size=11),
+            fg_color=COLORS["surface"], border_color=COLORS["text3"],
+        )
+        self._start_entry.grid(row=0, column=1, padx=2, pady=4, sticky="w")
+        self._start_entry.bind("<FocusOut>", self._on_trim_changed)
+        self._start_entry.bind("<Return>", self._on_trim_changed)
+
+        self._start_reset_btn = ctk.CTkButton(
+            self._trim_frame, text="⟲", width=24,
+            fg_color=COLORS["surface"], text_color=COLORS["text2"],
+            font=ctk.CTkFont(size=11),
+            command=lambda: self._set_trim_start(0.0),
+        )
+        self._start_reset_btn.grid(row=0, column=2, padx=(2, 8), pady=4)
+
+        # End
+        ctk.CTkLabel(
+            self._trim_frame, text="Конец:",
+            font=ctk.CTkFont(size=11), text_color=COLORS["text2"],
+        ).grid(row=0, column=3, padx=(0, 2), pady=4, sticky="w")
+
+        self._end_var = ctk.StringVar(value="")
+        self._end_entry = ctk.CTkEntry(
+            self._trim_frame, textvariable=self._end_var,
+            width=70, font=ctk.CTkFont(size=11),
+            fg_color=COLORS["surface"], border_color=COLORS["text3"],
+        )
+        self._end_entry.grid(row=0, column=4, padx=2, pady=4, sticky="w")
+        self._end_entry.bind("<FocusOut>", self._on_trim_changed)
+        self._end_entry.bind("<Return>", self._on_trim_changed)
+
+        self._end_reset_btn = ctk.CTkButton(
+            self._trim_frame, text="⟲", width=24,
+            fg_color=COLORS["surface"], text_color=COLORS["text2"],
+            font=ctk.CTkFont(size=11),
+            command=lambda: self._set_trim_end(0.0),
+        )
+        self._end_reset_btn.grid(row=0, column=5, padx=(2, 4), pady=4)
+
+        # Метка с длительностью
+        self._trim_dur_label = ctk.CTkLabel(
+            self._trim_frame, text="",
+            font=ctk.CTkFont(size=10), text_color=COLORS["text3"],
+        )
+        self._trim_dur_label.grid(row=0, column=6, padx=(4, 6), pady=4, sticky="e")
+
+        # Скрываем обрезку по умолчанию
+        self._hide_trim()
 
     # ── Публичное API ──────────────────────────────────────────────────
 
@@ -125,8 +255,8 @@ class PreviewPanel(ctk.CTkFrame):
              fmt_var: str, quality: int, max_size: int,
              result_size: int = 0, result_time: str = ""):
         """Обновить превью для указанного файла."""
-        # Чистим старый временный thumb-файл
         self._cleanup_thumb_file()
+        self._current_path = path
 
         if path is None:
             self._image_label.configure(image="", text="Нет файлов")
@@ -135,6 +265,7 @@ class PreviewPanel(ctk.CTkFrame):
             self._prev_btn.configure(state="disabled")
             self._next_btn.configure(state="disabled")
             self._has_file = False
+            self._hide_trim()
             return
 
         self._has_file = True
@@ -144,13 +275,111 @@ class PreviewPanel(ctk.CTkFrame):
         )
         self._name_label.configure(text=f"  {idx + 1}/{total}  {path.name}")
 
+        # Медиа-длительность для обрезки
+        ext = path.suffix.lower()
+        if ext in VIDEO_INPUT | AUDIO_INPUT:
+            info = get_media_info(path)
+            self._media_duration = info.duration
+            self._show_trim()
+            # Восстанавливаем сохранённые значения обрезки
+            ts, te = self._trim_values.get(path, (0.0, 0.0))
+            self._set_trim_start(ts, update_storage=False)
+            self._set_trim_end(te, update_storage=False)
+            self._update_trim_display()
+        else:
+            self._media_duration = 0.0
+            self._hide_trim()
+
         self._show_image(path)
         self._show_info(path, fmt_var, quality, max_size, result_size, result_time)
 
     def clear(self):
         """Сбросить превью."""
         self._cleanup_thumb_file()
+        self._current_path = None
+        self._media_duration = 0.0
         self.show(None, 0, 0, "", 0, 0)
+
+    def get_trim(self, path: Path) -> tuple[float, float]:
+        """Возвращает trim_start и trim_end для указанного файла."""
+        return self._trim_values.get(path, (0.0, 0.0))
+
+    def clear_trim(self, path: Path):
+        """Сбрасывает обрезку для файла."""
+        self._trim_values.pop(path, None)
+        if path == self._current_path:
+            self._set_trim_start(0.0, update_storage=False)
+            self._set_trim_end(0.0, update_storage=False)
+            self._update_trim_display()
+
+    # ── Обрезка ────────────────────────────────────────────────────────
+
+    def _hide_trim(self):
+        self._trim_header.grid_remove()
+        self._trim_frame.grid_remove()
+
+    def _show_trim(self):
+        self._trim_header.grid()
+        self._trim_frame.grid()
+
+    def _set_trim_start(self, value: float, update_storage: bool = True):
+        self._start_var.set(_fmt_trim(value) if value > 0 else "")
+        if update_storage and self._current_path:
+            _, te = self._trim_values.get(self._current_path, (0.0, 0.0))
+            self._trim_values[self._current_path] = (value, te)
+            self._on_trim_callback()
+
+    def _set_trim_end(self, value: float, update_storage: bool = True):
+        self._end_var.set(_fmt_trim(value) if value > 0 else "")
+        if update_storage and self._current_path:
+            ts, _ = self._trim_values.get(self._current_path, (0.0, 0.0))
+            self._trim_values[self._current_path] = (ts, value)
+            self._on_trim_callback()
+
+    def _on_trim_callback(self):
+        if self._on_trim_changed and self._current_path:
+            self._on_trim_changed(self._current_path)
+        self._update_trim_display()
+
+    def _on_trim_changed(self, _event=None):
+        """Вызывается при изменении полей обрезки."""
+        if not self._current_path:
+            return
+        ts = _parse_time(self._start_var.get())
+        te = _parse_time(self._end_var.get())
+        # Валидация: start не может быть больше end (если end задан)
+        dur = self._media_duration
+        if dur > 0:
+            if ts >= dur:
+                ts = max(0, dur - 1)
+            if te > dur:
+                te = dur
+            if ts > 0 and te > 0 and ts >= te:
+                te = min(dur, ts + 1)
+        self._trim_values[self._current_path] = (ts, te)
+        self._set_trim_start(ts, update_storage=False)
+        self._set_trim_end(te, update_storage=False)
+        self._update_trim_display()
+        self._on_trim_callback()
+
+    def _update_trim_display(self):
+        """Обновляет метку с длительностью после обрезки."""
+        if not self._current_path or self._media_duration <= 0:
+            self._trim_dur_label.configure(text="")
+            return
+        ts, te = self._trim_values.get(self._current_path, (0.0, 0.0))
+        trimmed = (te or self._media_duration) - ts
+        trimmed = max(trimmed, 0)
+        if ts > 0 or te > 0:
+            self._trim_dur_label.configure(
+                text=f"⏱ {_fmt_trim(trimmed)} / {_fmt_trim(self._media_duration)}",
+                text_color=COLORS["accent"],
+            )
+        else:
+            self._trim_dur_label.configure(
+                text=f"⏱ {_fmt_trim(self._media_duration)}",
+                text_color=COLORS["text3"],
+            )
 
     # ── Миниатюра ──────────────────────────────────────────────────────
 
@@ -159,14 +388,12 @@ class PreviewPanel(ctk.CTkFrame):
         is_image = ext not in VIDEO_INPUT | AUDIO_INPUT
 
         if not is_image:
-            # Видео/аудио — пытаемся достать кадр для миниатюры
             if ext in VIDEO_INPUT:
                 thumb = self._extract_video_thumb(path)
                 if thumb is not None and HAS_PIL:
                     self._display_pil_thumb(thumb)
                     return
 
-            # Не удалось — показываем инфу текстом
             sym = "🎬" if ext in VIDEO_INPUT else "🎵"
             info = get_media_info(path)
             lines = [f"{sym}", ext.upper()]
@@ -194,7 +421,6 @@ class PreviewPanel(ctk.CTkFrame):
             )
             return
 
-        # Изображение (PIL)
         try:
             self._display_pil_thumb(path)
         except Exception as e:
@@ -206,7 +432,6 @@ class PreviewPanel(ctk.CTkFrame):
             self._thumb = None
 
     def _display_pil_thumb(self, img_path: Path):
-        """Открыть img_path через PIL и показать в метке."""
         img = PILImage.open(img_path)
         pw = self._image_label.winfo_width() or 280
         ph = self._image_label.winfo_height() or 200
@@ -223,7 +448,6 @@ class PreviewPanel(ctk.CTkFrame):
         self._image_label.configure(image=ctk_img, text="")
 
     def _extract_video_thumb(self, path: Path) -> Path | None:
-        """Извлекает кадр видео через ffmpeg для миниатюры."""
         ffmpeg = _Converter._tool_path("ffmpeg")
         if not ffmpeg:
             return None
@@ -241,7 +465,6 @@ class PreviewPanel(ctk.CTkFrame):
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
             log.debug("Не удалось извлечь кадр: %s", e)
 
-        # Чистим пустой файл если ffmpeg создал, но не записал
         if out.exists():
             try:
                 out.unlink()
@@ -250,7 +473,6 @@ class PreviewPanel(ctk.CTkFrame):
         return None
 
     def _cleanup_thumb_file(self):
-        """Удалить временный файл кадра."""
         if self._thumb_file is not None:
             try:
                 if self._thumb_file.exists():
@@ -260,7 +482,6 @@ class PreviewPanel(ctk.CTkFrame):
             self._thumb_file = None
 
     def _cleanup_thumbs(self, event=None):
-        """Полная очистка временной папки (при Destroy)."""
         try:
             shutil.rmtree(self._thumb_dir, ignore_errors=True)
         except Exception:
@@ -270,7 +491,6 @@ class PreviewPanel(ctk.CTkFrame):
         if self._thumb is not None and self._has_file:
             ref = self._image_label.cget("image")
             if ref:
-                # CTkImage уже закеширован — просто триггер перерисовки
                 self._image_label.configure(image=ref)
 
     # ── Информация ─────────────────────────────────────────────────────
@@ -283,7 +503,6 @@ class PreviewPanel(ctk.CTkFrame):
         src_size = file_size(path)
         lines = []
 
-        # Тип
         if ext in VIDEO_INPUT:
             lines.append(f"🎬 Видео  •  {ext.upper()}")
         elif ext in AUDIO_INPUT:
@@ -296,10 +515,16 @@ class PreviewPanel(ctk.CTkFrame):
         lines.append(f"📦 {fmt_size(src_size)}")
 
         if ext in VIDEO_INPUT | AUDIO_INPUT:
-            # Медиа-инфо через ffprobe
             info = get_media_info(path)
             if info.duration:
-                lines.append(f"⏱ {info.fmt_duration()}")
+                dur_str = info.fmt_duration()
+                # Показываем обрезанную длительность если есть
+                ts, te = self._trim_values.get(path, (0.0, 0.0))
+                if ts > 0 or te > 0:
+                    trimmed = (te or info.duration) - ts
+                    trimmed = max(trimmed, 0)
+                    dur_str = f"{_fmt_trim(trimmed)} ✂ ({dur_str})"
+                lines.append(f"⏱ {dur_str}")
             if info.bit_rate:
                 lines.append(f"📊 {info.fmt_bitrate()}")
             if info.has_video:
@@ -317,7 +542,6 @@ class PreviewPanel(ctk.CTkFrame):
                     parts.append(f"{info.sample_rate // 1000}kHz")
                 lines.append("  ".join(parts))
         elif HAS_PIL and PILImage:
-            # Размеры изображения
             try:
                 with PILImage.open(path) as img:
                     lines.append(f"📐 {img.width}\u00d7{img.height}px")
@@ -326,12 +550,10 @@ class PreviewPanel(ctk.CTkFrame):
             except Exception:
                 pass
 
-        # Целевой формат
         fmt_global = "" if fmt_var == "Авто" else fmt_var.split(" — ")[0]
         target = fmt_global or resolve_fmt("", ext)
         lines.append(f"→ .{target}  (q={quality}, s={max_size})")
 
-        # Результат
         if result_size > 0:
             ratio = result_size / src_size * 100 if src_size > 0 else 0
             lines.append(f"✅ {fmt_size(result_size)}  ({ratio:.0f}%)  — {result_time}")

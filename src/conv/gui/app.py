@@ -79,6 +79,7 @@ class ConvApp(ctk.CTk):
             content,
             on_prev=self._preview_prev,
             on_next=self._preview_next,
+            on_trim_changed=self._on_trim_changed,
         )
         self.preview.grid(row=0, column=1, sticky="nsew")
 
@@ -234,6 +235,11 @@ class ConvApp(ctk.CTk):
 
     # ── Конвертация ───────────────────────────────────────────────────
 
+    def _on_trim_changed(self, path: Path):
+        """Вызывается при изменении обрезки."""
+        # Обновляем инфу превью (длительность с ✂)
+        self._update_preview()
+
     def _do_convert(self):
         if self.file_list.count == 0:
             return
@@ -250,6 +256,8 @@ class ConvApp(ctk.CTk):
                 output_format=self.params.format_name,
                 quality=self.params.quality,
                 max_size=self.params.max_size,
+                trim_start=self.preview.get_trim(p)[0],
+                trim_end=self.preview.get_trim(p)[1],
             )
             for p in self.file_list.paths
         ]
