@@ -235,6 +235,7 @@ class PreviewPanel(ctk.CTkFrame):
             result_size=result_size, result_time=result_time,
         )
         self._cleanup_thumb_file()
+        _old_path = self._current_path
         self._current_path = path
 
         if path is None:
@@ -262,7 +263,7 @@ class PreviewPanel(ctk.CTkFrame):
             self._show_trim()
             # Timeline + фейдеры + точный ввод
             ts, te = self._trim_values.get(path, (0.0, 0.0))
-            if self._timeline._current_path != path:
+            if _old_path != path:
                 self._timeline.set_file(path)
             self._timeline.set_trim(ts, te)
             self._update_sliders(ts, te)
