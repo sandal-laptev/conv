@@ -13,6 +13,10 @@ import customtkinter as ctk
 from conv.core import Converter, ConvertRequest
 from conv.gui.controllers.conversion import ConversionController
 from conv.gui.theme import COLORS, fmt_size, fmt_time
+from conv.history import HistoryManager
+from conv.gui.history_window import HistoryWindow
+from conv.history import HistoryManager
+from conv.gui.history_window import HistoryWindow
 from conv.gui.widgets.drop_zone import DropZone
 from conv.gui.widgets.file_list import FileList
 from conv.gui.widgets.params import ParamsPanel
@@ -32,6 +36,8 @@ class ConvApp(ctk.CTk):
         self.minsize(700, 600)
 
         self.converter = Converter()
+        self.history = HistoryManager()
+        self.history = HistoryManager()
         self.preview_index = 0
 
         self._build_ui()
@@ -131,10 +137,16 @@ class ConvApp(ctk.CTk):
         self.log_btn.grid(row=0, column=4, padx=(0, 8))
 
         ctk.CTkButton(
+            btn_frame, text="📜 История",
+            fg_color=COLORS["surface2"], text_color=COLORS["text2"],
+            command=self._show_history,
+        ).grid(row=0, column=5, padx=(0, 8))
+
+        ctk.CTkButton(
             btn_frame, text="✕ Закрыть",
             fg_color=COLORS["surface2"], text_color=COLORS["text2"],
             command=self.destroy,
-        ).grid(row=0, column=5)
+        ).grid(row=0, column=6)
 
     def _build_status(self):
         status_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -274,6 +286,9 @@ class ConvApp(ctk.CTk):
             self.status_var.set(status)
             self.progress_bar.set(1.0)
             self._update_buttons()
+            # Сохраняем в историю
+            for r in results:
+                self.history.add_from_result(r, "Переименование")
             return
 
         # ── Обычная конвертация ──
@@ -362,6 +377,9 @@ class ConvApp(ctk.CTk):
         )
         self._update_buttons()
         log.info("Конвертация завершена: %d/%d успешно", ok, total)
+        # Сохраняем в историю
+        for r in results:
+            self.history.add_from_result(r, "Конвертация")
 
     # ── Открыть папку ──
 
@@ -374,6 +392,11 @@ class ConvApp(ctk.CTk):
                 os.system(f'start "" "{out_dir}"')
 
     # ── Проверка инструментов ──
+
+    def _show_history(self):
+        """Открыть окно истории."""
+        win = HistoryWindow(self, self.history)
+        win.focus()
 
     def _check_tools_background(self):
         tools = self.converter.check_tools()
