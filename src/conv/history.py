@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 HISTORY_FILE = Path.home() / ".conv" / "history.json"
@@ -15,11 +15,11 @@ MAX_ENTRIES = 100
 class HistoryEntry:
     """Одна запись в истории конвертации/переименования."""
     timestamp: float = 0.0
-    operation: str = ""         # "Конвертация" | "Переименование"
-    input_name: str = ""        # имя файла
-    output_name: str = ""       # имя результата
-    src_fmt: str = ""           # .mp4, .jpg и т.д.
-    dst_fmt: str = ""           # .mp3, .png и т.д.
+    operation: str = ""
+    input_name: str = ""
+    output_name: str = ""
+    src_fmt: str = ""
+    dst_fmt: str = ""
     ok: bool = False
     src_size: int = 0
     dst_size: int = 0
@@ -47,13 +47,15 @@ class HistoryManager:
     def add_from_result(self, result, operation: str):
         """Добавить запись из ConvertResult."""
         req = result.request
+        out_name = result.output_path.name if result.output_path else ""
+        dst_fmt = f".{result.output_path.suffix.lstrip('.')}" if result.output_path else ""
         entry = HistoryEntry(
             timestamp=time.time(),
             operation=operation,
             input_name=req.input_path.name,
-            output_name=result.output_path.name if result.output_path else "",
+            output_name=out_name,
             src_fmt=req.input_ext,
-            dst_fmt=f".{req.output_path.suffix.lstrip('.')}" if result.output_path else "",
+            dst_fmt=dst_fmt,
             ok=result.ok,
             src_size=result.src_size,
             dst_size=result.dst_size,
@@ -72,8 +74,6 @@ class HistoryManager:
         with self._mutex:
             if HISTORY_FILE.exists():
                 HISTORY_FILE.unlink()
-
-    # ── Внутреннее ──
 
     def _load(self) -> list[dict]:
         if HISTORY_FILE.exists():
