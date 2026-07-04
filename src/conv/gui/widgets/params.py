@@ -73,6 +73,17 @@ class ParamsPanel(ctk.CTkFrame):
         self._size_entry.insert(0, "1920")
         self._size_entry.bind("<KeyRelease>", self._on_size_changed)
 
+        # Режим: только переименовать (row 3)
+        self._rename_var = ctk.BooleanVar(value=False)
+        self._rename_cb = ctk.CTkCheckBox(
+            self, text="🔄 Только переименовать (без конвертации)",
+            variable=self._rename_var,
+            command=self._on_rename_toggle,
+            text_color=COLORS["text2"],
+            font=ctk.CTkFont(size=11),
+        )
+        self._rename_cb.grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
+
     # ── Публичное API ──────────────────────────────────────────────────
 
     @property
@@ -102,6 +113,11 @@ class ParamsPanel(ctk.CTkFrame):
         self._size_entry.delete(0, "end")
         self._size_entry.insert(0, str(value))
 
+    @property
+    def rename_only(self) -> bool:
+        """True = только переименовать (без конвертации)."""
+        return self._rename_var.get()
+
     # ── Внутреннее ─────────────────────────────────────────────────────
 
     def _on_quality_change(self, value: float):
@@ -122,6 +138,10 @@ class ParamsPanel(ctk.CTkFrame):
                 self.max_size = p.max_size
                 log.info("Пресет: %s (q=%d, s=%d)", p.label, p.quality, p.max_size)
                 return
+
+    def _on_rename_toggle(self):
+        """Переключение режима переименования."""
+        log.info("Режим переименования: %s", self._rename_var.get())
 
     def _on_format_selected(self, *_):
         if self._on_format_changed:

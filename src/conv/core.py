@@ -612,6 +612,54 @@ class Converter:
         log.info("Пакетная конвертация завершена: %d/%d успешно", ok, total)
         return results
 
+    # ── Пакетное переименование ──────────────────────────────────────────────
+
+    def rename_many(
+        self, paths: list[Path], new_ext: str,
+        on_progress: Optional[Callable] = None,
+    ) -> list[ConvertResult]:
+        """Переименовывает файлы (смена расширения, без конвертации).
+
+        Каждый файл переименовывается на месте в указанное расширение.
+        Если файл с новым именем уже существует — пропускается.
+        """
+        if not new_ext.startswith("."):
+            new_ext = "." + new_ext
+
+        results: list[ConvertResult] = []
+        total = len(paths)
+        log.info("Переименование: %d файлов → .%s", total, new_ext.lstrip("."))
+
+        for i, p in enumerate(paths):
+            src_size = _try_size(p)
+            dst = p.with_suffix(new_ext)
+            res = ConvertResult(
+                request=ConvertRequest(p, p.parent),
+                src_size=src_size,
+                took=0.0,
+            )
+
+            if dst == p:
+                res.error = f"Расширение уже .{new_ext.lstrip('.')}"
+            elif dst.exists():
+                res.error = f"Уже существует: {dst.name}"
+            else:
+                try:
+                    p.rename(dst)
+                    res.ok = True
+                    res.output_path = dst
+                    res.dst_size = _try_size(dst)
+                except OSError as e:
+                    res.error = str(e)
+
+            results.append(res)
+            if on_progress:
+                on_progress(i + 1, total, res)
+
+        ok = sum(1 for r in results if r.ok)
+        log.info("Переименование завершено: %d/%d успешно", ok, total)
+        return results
+
     # ── Сбор файлов ──────────────────────────────────────────────────────────
 
     def collect(

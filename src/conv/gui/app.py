@@ -247,6 +247,36 @@ class ConvApp(ctk.CTk):
             return
 
         self.file_list.reset_results()
+
+        # ── Режим переименования (без ffmpeg) ──
+        if self.params.rename_only:
+            ext = self.params.format_name
+            if not ext:
+                self.status_var.set("⚠ Выберите формат для переименования")
+                return
+            self.status_var.set(f"⏳ Переименование в .{ext}...")
+            self.progress_bar.set(0)
+            results = self.converter.rename_many(
+                self.file_list.paths, ext,
+                on_progress=lambda d, t, r: self.progress_bar.set(d / t),
+            )
+            # Переносим результаты в file_list
+            for r in results:
+                self.file_list._results[r.request.input_path] = r
+            self.file_list._rebuild()
+            self._update_preview()
+            ok = sum(1 for r in results if r.ok)
+            fail = len(results) - ok
+            if fail == 0:
+                status = f"✅ Переименовано: {ok}"
+            else:
+                status = f"✅ {ok}  ❌ {fail}"
+            self.status_var.set(status)
+            self.progress_bar.set(1.0)
+            self._update_buttons()
+            return
+
+        # ── Обычная конвертация ──
         self._controller_running = True
 
         out_dir = Path.cwd() / "CONVERTED"

@@ -60,6 +60,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help='Начало обрезки в секундах (0 = с начала)')
     p.add_argument('--trim-end', type=float, default=0.0, metavar='S',
                    help='Конец обрезки в секундах (0 = до конца)')
+    p.add_argument('--rename-to', metavar='EXT',
+                   help='Переименовать файлы в указанное расширение (без конвертации)')
     p.add_argument('--info', action='store_true',
                    help='Показать информацию о медиафайлах (ffprobe) и выйти')
     p.add_argument('--dry-run', action='store_true',
@@ -360,6 +362,21 @@ def main(argv: list[str] | None = None) -> int:
     if need_svg and not tools.get('rsvg_convert'):
         print("  ⚠  rsvg-convert не найден! SVG не сконвертируются.")
         print("     Установите: apt install librsvg2-bin\n")
+
+    # ── Режим переименования ──
+    if args.rename_to:
+        print(f"  🏷 Переименование: {len(files)} файлов → .{args.rename_to.lstrip('.')}\n")
+        rename_results = converter.rename_many(files, args.rename_to)
+        ok = sum(1 for r in rename_results if r.ok)
+        fail = len(rename_results) - ok
+        print(f"  ───── ИТОГ ─────")
+        print(f"  ✅ Переименовано: {ok}")
+        if fail:
+            print(f"  ❌ Ошибок: {fail}")
+            for r in rename_results:
+                if not r.ok:
+                    print(f"     {r.input_name}: {r.error}")
+        return 0 if fail == 0 else 1
 
     # ── Создаём запросы ──
     requests: list[ConvertRequest] = []
