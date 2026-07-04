@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Callable
@@ -75,6 +76,7 @@ class PreviewPanel(ctk.CTkFrame):
         self._trim_values: dict[Path, tuple[float, float]] = {}
         self._thumb_dir = Path(tempfile.mkdtemp(prefix="conv_thumbs_"))
         self._last_show_params: dict = {}
+        self._cached_info: MediaInfo | None = None
         self.bind("<Destroy>", self._cleanup_thumbs)
 
         # Строки сетки: 0-header, 1-thumb, 2-nav, 3-info, 4-trim-header, 5-trim
@@ -270,6 +272,9 @@ class PreviewPanel(ctk.CTkFrame):
             self._media_duration = 0.0
             self._hide_trim()
 
+        # Кешируем MediaInfo для _refresh_info (без повторного ffprobe)
+        self._cached_info = get_media_info(path) if path and path.suffix.lower() in VIDEO_INPUT | AUDIO_INPUT else None
+
         self._show_image(path)
         self._show_info(path, fmt_var, quality, max_size, result_size, result_time)
 
@@ -278,6 +283,7 @@ class PreviewPanel(ctk.CTkFrame):
         self._cleanup_thumb_file()
         self._current_path = None
         self._media_duration = 0.0
+        self._cached_info = None
         self.show(None, 0, 0, "", 0, 0)
 
     def get_trim(self, path: Path) -> tuple[float, float]:
@@ -392,15 +398,10 @@ class PreviewPanel(ctk.CTkFrame):
         is_image = ext not in VIDEO_INPUT | AUDIO_INPUT
 
         if not is_image:
-            if ext in VIDEO_INPUT:
-                thumb = self._extract_video_thumb(path)
-                if thumb is not None and HAS_PIL:
-                    self._display_pil_thumb(thumb)
-                    return
-
+            # Показываем текстовую заглушку сразу
             sym = "🎬" if ext in VIDEO_INPUT else "🎵"
             info = get_media_info(path)
-            lines = [f"{sym}", ext.upper()]
+            lines = [f"⏳ {sym}", ext.upper()]
             if info.duration:
                 lines.append(info.fmt_duration())
             if info.resolution_str:
@@ -416,6 +417,14 @@ class PreviewPanel(ctk.CTkFrame):
                 font=ctk.CTkFont(size=20),
             )
             self._thumb = None
+
+            # Асинхронно загружаем миниатюру для видео
+            if ext in VIDEO_INPUT and HAS_PIL:
+                threading.Thread(
+                    target=self._async_video_thumb,
+                    args=(path,),
+                    daemon=True,
+                ).start()
             return
 
         if not HAS_PIL or PILImage is None:
@@ -434,6 +443,12 @@ class PreviewPanel(ctk.CTkFrame):
                 text_color=COLORS["error"], font=ctk.CTkFont(size=14),
             )
             self._thumb = None
+
+    def _async_video_thumb(self, path: Path):
+        """Фоновое извлечение кадра видео (в треде)."""
+        thumb = self._extract_video_thumb(path)
+        if thumb is not None:
+            self.after(0, lambda: self._display_pil_thumb(thumb))
 
     def _display_pil_thumb(self, img_path: Path):
         img = PILImage.open(img_path)
@@ -531,7 +546,7 @@ class PreviewPanel(ctk.CTkFrame):
         lines.append(f"📦 {fmt_size(src_size)}")
 
         if ext in VIDEO_INPUT | AUDIO_INPUT:
-            info = get_media_info(path)
+            info = self._cached_info if self._cached_info else get_media_info(path)
             if info.duration:
                 dur_str = info.fmt_duration()
                 # Показываем обрезанную длительность если есть
