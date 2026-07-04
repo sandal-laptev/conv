@@ -2,7 +2,7 @@
 chcp 65001 >nul
 
 REM Build conv for Windows using PyInstaller
-REM Requires: Python 3.10+, pip install -e .[gui] pyinstaller
+REM Requires: Python 3.10+, pip install -e .[gui,heif] pyinstaller
 
 echo.
 echo 🖧 Building conv for Windows
@@ -21,6 +21,18 @@ if exist "%~dp0..\ffmpeg.exe" (
     echo    (извлеките ffmpeg.exe в корень проекта)
     echo.
 )
+
+REM Установка pillow-heif (нужен для HEIC/HEIF)
+echo.
+echo 🔍 Checking pillow-heif...
+pip show pillow-heif >nul 2>&1
+if %errorlevel% neq 0 (
+    echo ⚠ pillow-heif not found — устанавливаю...
+    pip install pillow-heif>=1.0.0
+) else (
+    echo ✅ pillow-heif already installed
+)
+echo.
 
 REM Check for ffprobe.exe
 if exist "%~dp0..\ffprobe.exe" (
@@ -51,8 +63,8 @@ pyinstaller --onefile --windowed ^
     --hidden-import conv.gui.widgets.preview ^
     --hidden-import conv.logger ^
     --hidden-import pillow_heif ^
+    --hidden-import _pillow_heif ^
     --hidden-import PIL._tkinter_finder ^
-    --hidden-import pillow_heif.register_heif_opener ^
     --collect-all customtkinter ^
     --collect-all pillow_heif ^
     --collect-binaries pillow_heif ^
