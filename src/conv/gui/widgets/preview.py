@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 import shutil
 import subprocess
 import tempfile
@@ -22,7 +21,8 @@ from conv.core import (
     resolve_format as resolve_fmt,
 )
 from conv.core import Converter as _Converter
-from conv.gui.theme import COLORS, file_size, fmt_size
+from conv.gui.theme import COLORS, file_size, fmt_size, parse_time, fmt_trim
+from conv.gui.widgets.timeline import Timeline
 from conv.logger import get_logger
 
 log = get_logger("conv.preview")
@@ -41,44 +41,6 @@ if HAS_PIL:
         register_heif_opener()
     except ImportError:
         pass
-
-# ── Хелперы для времени ────────────────────────────────────────────────
-
-_TIME_RE = re.compile(
-    r"^(?:(\d+):)?(\d+):([\d.]+)$"   # HH:MM:SS.mmm  или  MM:SS.mmm
-)
-_FLOAT_RE = re.compile(r"^[\d.]+$")
-
-
-def _parse_time(text: str) -> float:
-    """Парсит время из строки: секунды, MM:SS или HH:MM:SS."""
-    text = text.strip()
-    if not text:
-        return 0.0
-
-    m = _TIME_RE.match(text)
-    if m:
-        h = int(m.group(1) or 0)
-        mm = int(m.group(2))
-        s = float(m.group(3))
-        return h * 3600 + mm * 60 + s
-
-    if _FLOAT_RE.match(text):
-        return float(text)
-
-    return 0.0
-
-
-def _fmt_trim(seconds: float) -> str:
-    """Форматирует секунды в MM:SS или HH:MM:SS."""
-    if seconds <= 0:
-        return "—"
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = seconds % 60
-    if h > 0:
-        return f"{h}:{m:02d}:{s:05.2f}"
-    return f"{m}:{s:05.2f}"
 
 
 class PreviewPanel(ctk.CTkFrame):
@@ -171,82 +133,59 @@ class PreviewPanel(ctk.CTkFrame):
         )
         self._info_label.grid(row=0, column=0, sticky="ew")
 
-        # ✂ Обрезка (trim)
-        self._trim_header = ctk.CTkFrame(self, fg_color="transparent")
-        self._trim_header.grid(row=4, column=0, pady=(4, 0), padx=8, sticky="ew")
-        self._trim_header.grid_columnconfigure(0, weight=1)
+        # ✂ Timeline — waveform + draggable маркеры
+        self._timeline = Timeline(
+            self,
+            on_trim_changed=self._on_timeline_trim,
+        )
+        self._timeline.grid(row=4, column=0, pady=(6, 2), padx=8, sticky="ew")
+
+        # Панель точного ввода под timeline
+        self._trim_bar = ctk.CTkFrame(self, fg_color="transparent")
+        self._trim_bar.grid(row=5, column=0, pady=(0, 6), padx=8, sticky="ew")
+        self._trim_bar.grid_columnconfigure(0, weight=0)
+        self._trim_bar.grid_columnconfigure(1, weight=0)
+        self._trim_bar.grid_columnconfigure(2, weight=0)
+        self._trim_bar.grid_columnconfigure(3, weight=0)
+        self._trim_bar.grid_columnconfigure(4, weight=1)
 
         ctk.CTkLabel(
-            self._trim_header, text="✂ Обрезка",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            text_color=COLORS["accent2"],
-        ).grid(row=0, column=0, sticky="w")
-
-        # Панель управления обрезкой
-        self._trim_frame = ctk.CTkFrame(self, fg_color=COLORS["surface2"])
-        self._trim_frame.grid(row=5, column=0, pady=(2, 6), padx=8, sticky="ew")
-        self._trim_frame.grid_columnconfigure(0, weight=0)
-        self._trim_frame.grid_columnconfigure(1, weight=1)
-        self._trim_frame.grid_columnconfigure(2, weight=0)
-        self._trim_frame.grid_columnconfigure(3, weight=1)
-        self._trim_frame.grid_columnconfigure(4, weight=0)
-
-        # Start
-        ctk.CTkLabel(
-            self._trim_frame, text="Начало:",
-            font=ctk.CTkFont(size=11), text_color=COLORS["text2"],
-        ).grid(row=0, column=0, padx=(6, 2), pady=4, sticky="w")
+            self._trim_bar, text="Начало:",
+            font=ctk.CTkFont(size=10), text_color=COLORS["text3"],
+        ).grid(row=0, column=0, padx=(6, 2), pady=2)
 
         self._start_var = ctk.StringVar(value="")
         self._start_entry = ctk.CTkEntry(
-            self._trim_frame, textvariable=self._start_var,
-            width=70, font=ctk.CTkFont(size=11),
-            fg_color=COLORS["surface"], border_color=COLORS["text3"],
+            self._trim_bar, textvariable=self._start_var,
+            width=60, font=ctk.CTkFont(size=10),
+            fg_color=COLORS["surface"], border_color=COLORS["surface2"],
         )
-        self._start_entry.grid(row=0, column=1, padx=2, pady=4, sticky="w")
-        self._start_entry.bind("<FocusOut>", self._on_trim_changed)
-        self._start_entry.bind("<Return>", self._on_trim_changed)
+        self._start_entry.grid(row=0, column=1, padx=2, pady=2)
+        self._start_entry.bind("<FocusOut>", self._on_entry_trim)
+        self._start_entry.bind("<Return>", self._on_entry_trim)
 
-        self._start_reset_btn = ctk.CTkButton(
-            self._trim_frame, text="⟲", width=24,
-            fg_color=COLORS["surface"], text_color=COLORS["text2"],
-            font=ctk.CTkFont(size=11),
-            command=lambda: self._set_trim_start(0.0),
-        )
-        self._start_reset_btn.grid(row=0, column=2, padx=(2, 8), pady=4)
-
-        # End
         ctk.CTkLabel(
-            self._trim_frame, text="Конец:",
-            font=ctk.CTkFont(size=11), text_color=COLORS["text2"],
-        ).grid(row=0, column=3, padx=(0, 2), pady=4, sticky="w")
+            self._trim_bar, text="Конец:",
+            font=ctk.CTkFont(size=10), text_color=COLORS["text3"],
+        ).grid(row=0, column=2, padx=(8, 2), pady=2)
 
         self._end_var = ctk.StringVar(value="")
         self._end_entry = ctk.CTkEntry(
-            self._trim_frame, textvariable=self._end_var,
-            width=70, font=ctk.CTkFont(size=11),
-            fg_color=COLORS["surface"], border_color=COLORS["text3"],
+            self._trim_bar, textvariable=self._end_var,
+            width=60, font=ctk.CTkFont(size=10),
+            fg_color=COLORS["surface"], border_color=COLORS["surface2"],
         )
-        self._end_entry.grid(row=0, column=4, padx=2, pady=4, sticky="w")
-        self._end_entry.bind("<FocusOut>", self._on_trim_changed)
-        self._end_entry.bind("<Return>", self._on_trim_changed)
+        self._end_entry.grid(row=0, column=3, padx=2, pady=2)
+        self._end_entry.bind("<FocusOut>", self._on_entry_trim)
+        self._end_entry.bind("<Return>", self._on_entry_trim)
 
-        self._end_reset_btn = ctk.CTkButton(
-            self._trim_frame, text="⟲", width=24,
-            fg_color=COLORS["surface"], text_color=COLORS["text2"],
-            font=ctk.CTkFont(size=11),
-            command=lambda: self._set_trim_end(0.0),
-        )
-        self._end_reset_btn.grid(row=0, column=5, padx=(2, 4), pady=4)
-
-        # Метка с длительностью
         self._trim_dur_label = ctk.CTkLabel(
-            self._trim_frame, text="",
+            self._trim_bar, text="",
             font=ctk.CTkFont(size=10), text_color=COLORS["text3"],
         )
-        self._trim_dur_label.grid(row=0, column=6, padx=(4, 6), pady=4, sticky="e")
+        self._trim_dur_label.grid(row=0, column=4, padx=(8, 6), pady=2, sticky="e")
 
-        # Скрываем обрезку по умолчанию
+        # Скрываем весь блок обрезки по умолчанию
         self._hide_trim()
 
     # ── Публичное API ──────────────────────────────────────────────────
@@ -281,10 +220,12 @@ class PreviewPanel(ctk.CTkFrame):
             info = get_media_info(path)
             self._media_duration = info.duration
             self._show_trim()
-            # Восстанавливаем сохранённые значения обрезки
+            # Timeline + точный ввод
             ts, te = self._trim_values.get(path, (0.0, 0.0))
-            self._set_trim_start(ts, update_storage=False)
-            self._set_trim_end(te, update_storage=False)
+            self._timeline.set_file(path)
+            self._timeline.set_trim(ts, te)
+            self._start_var.set(fmt_trim(ts) if ts > 0 else "")
+            self._end_var.set(fmt_trim(te) if te > 0 else "")
             self._update_trim_display()
         else:
             self._media_duration = 0.0
@@ -308,62 +249,51 @@ class PreviewPanel(ctk.CTkFrame):
         """Сбрасывает обрезку для файла."""
         self._trim_values.pop(path, None)
         if path == self._current_path:
-            self._set_trim_start(0.0, update_storage=False)
-            self._set_trim_end(0.0, update_storage=False)
+            self._timeline.set_trim(0.0, 0.0)
+            self._start_var.set("")
+            self._end_var.set("")
             self._update_trim_display()
 
     # ── Обрезка ────────────────────────────────────────────────────────
 
     def _hide_trim(self):
-        self._trim_header.grid_remove()
-        self._trim_frame.grid_remove()
+        self._timeline.grid_remove()
+        self._trim_bar.grid_remove()
 
     def _show_trim(self):
-        self._trim_header.grid()
-        self._trim_frame.grid()
+        self._timeline.grid()
+        self._trim_bar.grid()
 
-    def _set_trim_start(self, value: float, update_storage: bool = True):
-        self._start_var.set(_fmt_trim(value) if value > 0 else "")
-        if update_storage and self._current_path:
-            _, te = self._trim_values.get(self._current_path, (0.0, 0.0))
-            self._trim_values[self._current_path] = (value, te)
-            self._on_trim_callback()
+    def _on_timeline_trim(self, start_sec: float, end_sec: float):
+        """Вызывается при перетаскивании маркеров на Timeline."""
+        if self._current_path:
+            self._trim_values[self._current_path] = (start_sec, end_sec)
+            self._start_var.set(fmt_trim(start_sec) if start_sec > 0 else "")
+            self._end_var.set(fmt_trim(end_sec) if end_sec > 0 else "")
+            self._update_trim_display()
+            if self._on_trim_changed:
+                self._on_trim_changed(self._current_path)
 
-    def _set_trim_end(self, value: float, update_storage: bool = True):
-        self._end_var.set(_fmt_trim(value) if value > 0 else "")
-        if update_storage and self._current_path:
-            ts, _ = self._trim_values.get(self._current_path, (0.0, 0.0))
-            self._trim_values[self._current_path] = (ts, value)
-            self._on_trim_callback()
-
-    def _on_trim_callback(self):
-        if self._on_trim_changed and self._current_path:
-            self._on_trim_changed(self._current_path)
-        self._update_trim_display()
-
-    def _on_trim_changed(self, _event=None):
-        """Вызывается при изменении полей обрезки."""
+    def _on_entry_trim(self, _event=None):
+        """Вызывается при вводе в текстовые поля."""
         if not self._current_path:
             return
-        ts = _parse_time(self._start_var.get())
-        te = _parse_time(self._end_var.get())
-        # Валидация: start не может быть больше end (если end задан)
+        ts = parse_time(self._start_var.get())
+        te = parse_time(self._end_var.get())
         dur = self._media_duration
         if dur > 0:
-            if ts >= dur:
-                ts = max(0, dur - 1)
-            if te > dur:
-                te = dur
-            if ts > 0 and te > 0 and ts >= te:
-                te = min(dur, ts + 1)
+            ts = max(0, min(ts, dur - 1 if dur > 0 else 0))
+            te = max(ts + 1 if ts > 0 and te <= ts else 0, min(te, dur))
         self._trim_values[self._current_path] = (ts, te)
-        self._set_trim_start(ts, update_storage=False)
-        self._set_trim_end(te, update_storage=False)
+        self._start_var.set(fmt_trim(ts) if ts > 0 else "")
+        self._end_var.set(fmt_trim(te) if te > 0 else "")
+        self._timeline.set_trim(ts, te)
         self._update_trim_display()
-        self._on_trim_callback()
+        if self._on_trim_changed:
+            self._on_trim_changed(self._current_path)
 
     def _update_trim_display(self):
-        """Обновляет метку с длительностью после обрезки."""
+        """Обновляет метку с длительностью."""
         if not self._current_path or self._media_duration <= 0:
             self._trim_dur_label.configure(text="")
             return
@@ -372,12 +302,12 @@ class PreviewPanel(ctk.CTkFrame):
         trimmed = max(trimmed, 0)
         if ts > 0 or te > 0:
             self._trim_dur_label.configure(
-                text=f"⏱ {_fmt_trim(trimmed)} / {_fmt_trim(self._media_duration)}",
+                text=f"✂ {fmt_trim(trimmed)} / {fmt_trim(self._media_duration)}",
                 text_color=COLORS["accent"],
             )
         else:
             self._trim_dur_label.configure(
-                text=f"⏱ {_fmt_trim(self._media_duration)}",
+                text=f"⏱ {fmt_trim(self._media_duration)}",
                 text_color=COLORS["text3"],
             )
 
@@ -523,7 +453,7 @@ class PreviewPanel(ctk.CTkFrame):
                 if ts > 0 or te > 0:
                     trimmed = (te or info.duration) - ts
                     trimmed = max(trimmed, 0)
-                    dur_str = f"{_fmt_trim(trimmed)} ✂ ({dur_str})"
+                    dur_str = f"{fmt_trim(trimmed)} ✂ ({dur_str})"
                 lines.append(f"⏱ {dur_str}")
             if info.bit_rate:
                 lines.append(f"📊 {info.fmt_bitrate()}")
