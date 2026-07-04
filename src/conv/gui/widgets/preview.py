@@ -22,7 +22,7 @@ from conv.core import (
 )
 from conv.core import Converter as _Converter
 from conv.gui.theme import COLORS, file_size, fmt_size, parse_time, fmt_trim
-from conv.gui.widgets.timeline import Timeline
+from conv.gui.widgets.timeline import Timeline, COLOR_IN, COLOR_OUT
 from conv.logger import get_logger
 
 log = get_logger("conv.preview")
@@ -133,16 +133,49 @@ class PreviewPanel(ctk.CTkFrame):
         )
         self._info_label.grid(row=0, column=0, sticky="ew")
 
-        # ✂ Timeline — waveform + draggable маркеры
-        self._timeline = Timeline(
-            self,
-            on_trim_changed=self._on_timeline_trim,
-        )
+        # ✂ Timeline — визуализация waveform + маркеры (read-only)
+        self._timeline = Timeline(self)
         self._timeline.grid(row=4, column=0, pady=(6, 2), padx=8, sticky="ew")
 
-        # Панель точного ввода под timeline
+        # Фейдеры (слайдеры) — основное управление обрезкой
+        self._slider_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self._slider_frame.grid(row=5, column=0, pady=(0, 0), padx=8, sticky="ew")
+        self._slider_frame.grid_columnconfigure(1, weight=1)
+        self._slider_frame.grid_columnconfigure(3, weight=1)
+
+        ctk.CTkLabel(
+            self._slider_frame, text="◀",
+            font=ctk.CTkFont(size=10), text_color=COLOR_IN,
+        ).grid(row=0, column=0, padx=(0, 2), pady=1)
+
+        self._start_slider = ctk.CTkSlider(
+            self._slider_frame, from_=0, to=100,
+            height=14, button_color=COLOR_IN,
+            button_hover_color="#00c853",
+            fg_color=COLORS["surface"], progress_color=COLORS["surface2"],
+            command=self._on_slider_start,
+        )
+        self._start_slider.grid(row=0, column=1, padx=2, pady=1, sticky="ew")
+        self._start_slider.set(0)
+
+        ctk.CTkLabel(
+            self._slider_frame, text="▶",
+            font=ctk.CTkFont(size=10), text_color=COLOR_OUT,
+        ).grid(row=0, column=2, padx=(8, 2), pady=1)
+
+        self._end_slider = ctk.CTkSlider(
+            self._slider_frame, from_=0, to=100,
+            height=14, button_color=COLOR_OUT,
+            button_hover_color="#d50000",
+            fg_color=COLORS["surface"], progress_color=COLORS["surface2"],
+            command=self._on_slider_end,
+        )
+        self._end_slider.grid(row=0, column=3, padx=2, pady=1, sticky="ew")
+        self._end_slider.set(100)
+
+        # Панель точного ввода + метка длительности
         self._trim_bar = ctk.CTkFrame(self, fg_color="transparent")
-        self._trim_bar.grid(row=5, column=0, pady=(0, 6), padx=8, sticky="ew")
+        self._trim_bar.grid(row=6, column=0, pady=(0, 6), padx=8, sticky="ew")
         self._trim_bar.grid_columnconfigure(0, weight=0)
         self._trim_bar.grid_columnconfigure(1, weight=0)
         self._trim_bar.grid_columnconfigure(2, weight=0)
@@ -150,14 +183,14 @@ class PreviewPanel(ctk.CTkFrame):
         self._trim_bar.grid_columnconfigure(4, weight=1)
 
         ctk.CTkLabel(
-            self._trim_bar, text="Начало:",
+            self._trim_bar, text="От:",
             font=ctk.CTkFont(size=10), text_color=COLORS["text3"],
         ).grid(row=0, column=0, padx=(6, 2), pady=2)
 
         self._start_var = ctk.StringVar(value="")
         self._start_entry = ctk.CTkEntry(
             self._trim_bar, textvariable=self._start_var,
-            width=60, font=ctk.CTkFont(size=10),
+            width=55, font=ctk.CTkFont(size=10),
             fg_color=COLORS["surface"], border_color=COLORS["surface2"],
         )
         self._start_entry.grid(row=0, column=1, padx=2, pady=2)
@@ -165,14 +198,14 @@ class PreviewPanel(ctk.CTkFrame):
         self._start_entry.bind("<Return>", self._on_entry_trim)
 
         ctk.CTkLabel(
-            self._trim_bar, text="Конец:",
+            self._trim_bar, text="До:",
             font=ctk.CTkFont(size=10), text_color=COLORS["text3"],
         ).grid(row=0, column=2, padx=(8, 2), pady=2)
 
         self._end_var = ctk.StringVar(value="")
         self._end_entry = ctk.CTkEntry(
             self._trim_bar, textvariable=self._end_var,
-            width=60, font=ctk.CTkFont(size=10),
+            width=55, font=ctk.CTkFont(size=10),
             fg_color=COLORS["surface"], border_color=COLORS["surface2"],
         )
         self._end_entry.grid(row=0, column=3, padx=2, pady=2)
@@ -220,9 +253,10 @@ class PreviewPanel(ctk.CTkFrame):
             info = get_media_info(path)
             self._media_duration = info.duration
             self._show_trim()
-            # Timeline + точный ввод
+            # Timeline + фейдеры + точный ввод
             ts, te = self._trim_values.get(path, (0.0, 0.0))
             self._timeline.set_file(path)
+            self._update_sliders(ts, te)
             self._timeline.set_trim(ts, te)
             self._start_var.set(fmt_trim(ts) if ts > 0 else "")
             self._end_var.set(fmt_trim(te) if te > 0 else "")
@@ -249,6 +283,7 @@ class PreviewPanel(ctk.CTkFrame):
         """Сбрасывает обрезку для файла."""
         self._trim_values.pop(path, None)
         if path == self._current_path:
+            self._update_sliders(0.0, 0.0)
             self._timeline.set_trim(0.0, 0.0)
             self._start_var.set("")
             self._end_var.set("")
@@ -258,21 +293,55 @@ class PreviewPanel(ctk.CTkFrame):
 
     def _hide_trim(self):
         self._timeline.grid_remove()
+        self._slider_frame.grid_remove()
         self._trim_bar.grid_remove()
 
     def _show_trim(self):
         self._timeline.grid()
+        self._slider_frame.grid()
         self._trim_bar.grid()
 
-    def _on_timeline_trim(self, start_sec: float, end_sec: float):
-        """Вызывается при перетаскивании маркеров на Timeline."""
-        if self._current_path:
-            self._trim_values[self._current_path] = (start_sec, end_sec)
-            self._start_var.set(fmt_trim(start_sec) if start_sec > 0 else "")
-            self._end_var.set(fmt_trim(end_sec) if end_sec > 0 else "")
-            self._update_trim_display()
-            if self._on_trim_changed:
-                self._on_trim_changed(self._current_path)
+    def _update_sliders(self, start_sec: float, end_sec: float):
+        """Установить позиции слайдеров (в секундах)."""
+        dur = max(self._media_duration, 1)
+        self._start_slider.configure(to=dur)
+        self._end_slider.configure(to=dur)
+        self._start_slider.set(max(0, min(start_sec, dur)))
+        self._end_slider.set(max(0, min(end_sec or dur, dur)))
+
+    def _apply_trim(self, ts: float, te: float):
+        """Применить trim-значения: сохранить, обновить UI, коллбэк."""
+        if not self._current_path:
+            return
+        self._trim_values[self._current_path] = (ts, te)
+        self._start_var.set(fmt_trim(ts) if ts > 0 else "")
+        self._end_var.set(fmt_trim(te) if te > 0 else "")
+        self._timeline.set_trim(ts, te)
+        self._update_trim_display()
+        if self._on_trim_changed:
+            self._on_trim_changed(self._current_path)
+
+    def _on_slider_start(self, val: float):
+        """Слайдер начала изменился."""
+        if not self._current_path or self._media_duration <= 0:
+            return
+        ts = val
+        _, te = self._trim_values.get(self._current_path, (0.0, self._media_duration))
+        if te <= 0:
+            te = self._media_duration
+        if ts >= te:
+            ts = max(0, te - 1)
+        self._apply_trim(ts, te)
+
+    def _on_slider_end(self, val: float):
+        """Слайдер конца изменился."""
+        if not self._current_path or self._media_duration <= 0:
+            return
+        te = val
+        ts, _ = self._trim_values.get(self._current_path, (0.0, 0.0))
+        if te <= ts:
+            te = min(self._media_duration, ts + 1)
+        self._apply_trim(ts, te)
 
     def _on_entry_trim(self, _event=None):
         """Вызывается при вводе в текстовые поля."""
@@ -284,13 +353,8 @@ class PreviewPanel(ctk.CTkFrame):
         if dur > 0:
             ts = max(0, min(ts, dur - 1 if dur > 0 else 0))
             te = max(ts + 1 if ts > 0 and te <= ts else 0, min(te, dur))
-        self._trim_values[self._current_path] = (ts, te)
-        self._start_var.set(fmt_trim(ts) if ts > 0 else "")
-        self._end_var.set(fmt_trim(te) if te > 0 else "")
-        self._timeline.set_trim(ts, te)
-        self._update_trim_display()
-        if self._on_trim_changed:
-            self._on_trim_changed(self._current_path)
+        self._update_sliders(ts, te)
+        self._apply_trim(ts, te)
 
     def _update_trim_display(self):
         """Обновляет метку с длительностью."""
@@ -378,14 +442,26 @@ class PreviewPanel(ctk.CTkFrame):
         self._image_label.configure(image=ctk_img, text="")
 
     def _extract_video_thumb(self, path: Path) -> Path | None:
+        """Извлекает кадр из центра обрезанного диапазона (или 1с если нет trim)."""
         ffmpeg = _Converter._tool_path("ffmpeg")
         if not ffmpeg:
             return None
 
+        # Центр обрезки
+        ts, te = self._trim_values.get(path, (0.0, 0.0))
+        info = get_media_info(path)
+        dur = info.duration or 30
+        start = ts if ts > 0 else 1
+        end = te if te > 0 else dur
+        if start >= end:
+            start = 1
+            end = max(dur, 2)
+        center = (start + end) / 2
+
         out = self._thumb_dir / f"{path.stem}_{int(time.time() * 1000)}.jpg"
         try:
             r = subprocess.run(
-                [ffmpeg, "-i", str(path), "-ss", "00:00:01",
+                [ffmpeg, "-ss", str(center), "-i", str(path),
                  "-vframes", "1", "-q:v", "5", "-y", str(out)],
                 capture_output=True, text=True, timeout=30,
             )
