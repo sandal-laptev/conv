@@ -50,7 +50,10 @@ pyinstaller --onefile --windowed ^
     --hidden-import conv.gui.widgets.file_list ^
     --hidden-import conv.gui.widgets.preview ^
     --hidden-import conv.logger ^
+    --hidden-import pillow_heif ^
+    --hidden-import PIL._tkinter_finder ^
     --collect-all customtkinter ^
+    --collect-all pillow_heif ^
     scripts\entry_gui.py
 
 REM CLI version
