@@ -47,7 +47,7 @@ if exist "%~dp0..\ffprobe.exe" (
 REM GUI version
 echo.
 echo 🖥️ Building GUI version...
-pyinstaller --onefile --windowed ^
+python -m PyInstaller --onefile --windowed ^
     --name "conv" ^
     --add-data "src/conv;conv" ^
     %EXTRA_DATA% ^
@@ -63,7 +63,6 @@ pyinstaller --onefile --windowed ^
     --hidden-import conv.gui.widgets.preview ^
     --hidden-import conv.logger ^
     --hidden-import pillow_heif ^
-    --hidden-import _pillow_heif ^
     --hidden-import PIL._tkinter_finder ^
     --collect-all customtkinter ^
     --collect-all pillow_heif ^
@@ -73,7 +72,7 @@ pyinstaller --onefile --windowed ^
 REM CLI version
 echo.
 echo ⌨️ Building CLI version...
-pyinstaller --onefile ^
+python -m PyInstaller --onefile ^
     --name "conv-cli" ^
     --add-data "src/conv;conv" ^
     %EXTRA_DATA% ^
