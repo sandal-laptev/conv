@@ -155,8 +155,8 @@ class _VideoPlayerWidget(QWidget):
 
     # ── Публичное API ──────────────────────────────────────────────────
 
-    def load(self, path: Path) -> None:
-        """Загрузить видео, сбросить range на весь файл."""
+    def load(self, path: Path, is_audio: bool = False) -> None:
+        """Загрузить медиафайл."""
         self._player.stop()
         self._player.setSource(QUrl.fromLocalFile(str(path)))
         self._range_start_ms = 0
@@ -164,6 +164,25 @@ class _VideoPlayerWidget(QWidget):
         self._range_active = False
         self._time_label.setText("00:00 / 00:00")
         self._pos_slider.setValue(0)
+        # Стиль: для аудио — тёмный фон с нотой, для видео — нормальный
+        if is_audio:
+            self._video_widget.setStyleSheet(f"""
+                QVideoWidget {{
+                    background-color: {COLORS['surface']};
+                    border: 1px solid {COLORS['border']};
+                    border-radius: 4px;
+                    qproperty-text: "🎵 Audio";
+                }}
+            """)
+            self._video_widget.setVisible(True)
+        else:
+            self._video_widget.setStyleSheet(f"""
+                QVideoWidget {{
+                    background-color: {COLORS['bg']};
+                    border: 1px solid {COLORS['border']};
+                    border-radius: 4px;
+                }}
+            """)
 
     def unload(self) -> None:
         self._player.stop()
@@ -444,10 +463,10 @@ class PreviewPanel(QWidget):
             return
 
         if ext in AUDIO_INPUT:
-            self._media_stack.setCurrentIndex(0)
-            self._video_player.unload()
+            # Аудио — через QMediaPlayer (как видео, но без видеовыхода)
+            self._media_stack.setCurrentIndex(1)
+            self._video_player.load(path, is_audio=True)
             self._image_label.clear_image()
-            self._image_label.setText("🎵\n(аудио — waveform на таймлайне)")
             self._timeline.set_file(path)
             self._restore_trim(path)
             return
