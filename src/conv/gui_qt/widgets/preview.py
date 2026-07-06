@@ -113,7 +113,7 @@ class _VideoPlayerWidget(QWidget):
 
         self._btn_stop = QPushButton("⏹")
         self._btn_stop.setFixedWidth(36)
-        self._btn_stop.clicked.connect(self._player.stop)
+        self._btn_stop.clicked.connect(self._do_stop)
         controls.addWidget(self._btn_stop)
 
         self._pos_slider = QSlider(Qt.Horizontal)
@@ -184,6 +184,12 @@ class _VideoPlayerWidget(QWidget):
         else:
             self._player.play()
 
+    def _do_stop(self) -> None:
+        """Стоп: пауза + перемотка на IN (вместо stop(), который сбрасывает в 0)."""
+        self._player.pause()
+        pos = self._range_start_ms if self._range_active else 0
+        self._player.setPosition(pos)
+
     def _seek(self, value: int) -> None:
         """Перемотка. Если range активен — value 0..1000 = IN..OUT."""
         dur = self._player.duration()
@@ -235,9 +241,9 @@ class _VideoPlayerWidget(QWidget):
 
         dur = self._player.duration()
 
-        # Range guard: не пускаем за OUT
+        # Range guard: при достижении OUT — пауза + возврат на IN
         if self._range_end_ms > 0 and pos >= self._range_end_ms:
-            self._player.stop()
+            self._player.pause()
             self._player.setPosition(self._range_start_ms)
             self._update_slider_from_pos(self._range_start_ms, dur)
             return

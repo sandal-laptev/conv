@@ -11,10 +11,10 @@ from pathlib import Path
 from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPen, QPixmap, QPolygon
 from PySide6.QtWidgets import (
-    QDoubleSpinBox,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
@@ -48,6 +48,69 @@ def _fmt_trim2(sec: float) -> str:
     return f"{m:02d}:{s:02d}.{ms:03d}"
 
 
+def _parse_time(text: str) -> float | None:
+    """Парсит время в форматах: 123.5 (сек), MM:SS.mmm, HH:MM:SS.mmm."""
+    raw = text.strip().replace(",", ".")
+    if not raw:
+        return None
+    try:
+        return abs(float(raw))
+    except ValueError:
+        pass
+    try:
+        parts = raw.split(":")
+        if len(parts) == 2:
+            return abs(int(parts[0])) * 60 + abs(float(parts[1]))
+        if len(parts) == 3:
+            return abs(int(parts[0])) * 3600 + abs(int(parts[1])) * 60 + abs(float(parts[2]))
+    except (ValueError, IndexError):
+        pass
+    return None
+
+
+class _TimeInput(QLineEdit):
+    """Поле ввода времени MM:SS.mmm. Хранит значение в секундах как float.
+
+    Принимает: 12.5, 1:30.000, 01:30, 0:00:30.500
+    """
+
+    valueChanged = Signal(float)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._value: float = 0.0
+        self._min_val: float = 0.0
+        self._max_val: float = 999999.0
+        self.setFixedWidth(130)
+        self.setAlignment(Qt.AlignCenter)
+        self.editingFinished.connect(self._on_editing_finished)
+
+    def setValue(self, val: float) -> None:
+        val = max(self._min_val, min(self._max_val, val))
+        self._value = val
+        self.setText(_fmt_trim2(val))
+
+    def value(self) -> float:
+        return self._value
+
+    def setMinimum(self, val: float) -> None:
+        self._min_val = val
+
+    def setMaximum(self, val: float) -> None:
+        self._max_val = val
+
+    def _on_editing_finished(self) -> None:
+        parsed = _parse_time(self.text())
+        val = (
+            max(self._min_val, min(self._max_val, parsed))
+            if parsed is not None
+            else self._value
+        )
+        self._value = val
+        self.setText(_fmt_trim2(val))
+        self.valueChanged.emit(val)
+
+
 class _TimelineBar(QWidget):
     """Полоса с двумя маркерами. Затемняются обрезаемые края, центр прозрачен."""
 
@@ -63,7 +126,6 @@ class _TimelineBar(QWidget):
         self._in_sec: float = 0.0
         self._out_sec: float = 0.0
         self._bg_pixmap: QPixmap | None = None
-
         self._drag: str | None = None
         self._hover: str | None = None
         self._drag_start_x: float = 0.0
@@ -135,13 +197,12 @@ class _TimelineBar(QWidget):
         if not self._drag or self._duration <= 0:
             old = self._hover
             self._hover = None
-            for tag, sec in [("out", self._out_sec), ("in", self._in_sec)]:
+            for _, sec in [("out", self._out_sec), ("in", self._in_sec)]:
                 if self._hit_marker(x, sec):
-                    self._hover = tag
+                    self._hover = _, sec
                     break
             if old != self._hover:
-                self.setCursor(Qt.ArrowCursor if self._hover is None
-                               else Qt.PointingHandCursor)
+                self.setCursor(Qt.ArrowCursor if self._hover is None else Qt.PointingHandCursor)
             return
 
         if self._drag == "in":
@@ -170,7 +231,6 @@ class _TimelineBar(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
-
         try:
             tl = int(self._track_left())
             tr = int(self._track_right())
@@ -182,34 +242,31 @@ class _TimelineBar(QWidget):
                 painter.drawText(self.rect(), Qt.AlignCenter, "Нет данных о длительности")
                 return
 
-            # ── Подложка ──
             painter.fillRect(tl, ty, tw, TRACK_H, QColor(COLOR_TRACK))
             if self._bg_pixmap and not self._bg_pixmap.isNull():
-                scaled = self._bg_pixmap.scaled(
-                    tw, TRACK_H, Qt.IgnoreAspectRatio, Qt.SmoothTransformation,
-                )
-                painter.drawPixmap(tl, ty, scaled)
+                painter.drawPixmap(tl, ty, self._bg_pixmap.scaled(
+                    tw, TRACK_H, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
 
             in_x = int(self._sec_to_x(self._in_sec))
             out_x = int(self._sec_to_x(self._out_sec))
 
-            # ── Затемнение ОБРЕЗАЕМЫХ краёв ──
+            # Затемнение ОБРЕЗАЕМЫХ краёв
             if self._in_sec > 0:
                 painter.fillRect(tl, ty, in_x - tl, TRACK_H, QColor(0, 0, 0, 191))
             if self._out_sec < self._duration:
                 painter.fillRect(out_x, ty, tr - out_x, TRACK_H, QColor(0, 0, 0, 191))
 
-            # ── Рамки IN/OUT ──
+            # Рамки
             painter.setPen(QPen(QColor(COLOR_IN), 2))
             painter.drawLine(in_x, ty, in_x, ty + TRACK_H)
             painter.setPen(QPen(QColor(COLOR_OUT), 2))
             painter.drawLine(out_x, ty, out_x, ty + TRACK_H)
 
-            # ── Ручки ──
+            # Ручки
             self._draw_handle(painter, self._in_sec, COLOR_IN, in_x, ty)
             self._draw_handle(painter, self._out_sec, COLOR_OUT, out_x, ty)
 
-            # ── Подписи ──
+            # Подписи внизу
             painter.setPen(QColor(COLORS["text3"]))
             font = painter.font()
             font.setPointSize(8)
@@ -217,72 +274,33 @@ class _TimelineBar(QWidget):
             fm = QFontMetrics(font)
             labels = [
                 (tl, _fmt_trim(0.0)),
-                (int((tl + tr) / 2 - 20), _fmt_trim(self._duration / 2)),
+                ((tl + tr) // 2 - 20, _fmt_trim(self._duration / 2)),
                 (tr - fm.horizontalAdvance("99:99"), _fmt_trim(self._duration)),
             ]
-            for lx, ltxt in labels:
-                painter.drawText(lx, ty + TRACK_H + 15, ltxt)
+            for lx, lt in labels:
+                painter.drawText(lx, ty + TRACK_H + 15, lt)
         finally:
             painter.end()
 
     def _draw_handle(self, painter: QPainter, sec: float, color: str,
                      cx: int, ty: int) -> None:
         half = HANDLE_W // 2
-        y0 = ty
-
-        # Треугольник через QPolygon (PySide6 не принимает list of tuples)
         painter.setBrush(QColor(color))
         painter.setPen(Qt.NoPen)
         poly = QPolygon()
-        poly.append(QPoint(cx - half, y0))
-        poly.append(QPoint(cx + half, y0))
-        poly.append(QPoint(cx, y0 - HANDLE_H))
+        poly.append(QPoint(cx - half, ty))
+        poly.append(QPoint(cx + half, ty))
+        poly.append(QPoint(cx, ty - HANDLE_H))
         painter.drawPolygon(poly)
 
-        # Метка
         painter.setPen(QColor(color))
         font = painter.font()
         font.setPointSize(8)
         font.setBold(True)
         painter.setFont(font)
-        fm = QFontMetrics(font)
         text = _fmt_trim2(sec)
-        painter.drawText(cx - fm.horizontalAdvance(text) // 2, y0 - HANDLE_H - 3, text)
-
-
-class _TrimSpinBox(QDoubleSpinBox):
-    """QDoubleSpinBox с форматированием MM:SS.mmm."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setDecimals(3)
-        self.setRange(0.0, 999999.0)
-        self.setSingleStep(0.5)
-        self.setSuffix(" с")
-        self.setGroupSeparatorShown(False)
-        self.setFixedWidth(130)
-
-    def textFromValue(self, value: float) -> str:
-        return _fmt_trim2(value)
-
-    def valueFromText(self, text: str) -> float:
-        try:
-            return float(text)
-        except ValueError:
-            pass
-        try:
-            parts = text.split(":")
-            if len(parts) == 2:
-                return int(parts[0]) * 60 + float(parts[1])
-            if len(parts) == 3:
-                return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
-        except (ValueError, IndexError):
-            pass
-        return self.value()
-
-    def validate(self, text: str, pos: int):
-        from PySide6.QtGui import QValidator
-        return (QValidator.Acceptable, text, pos)
+        painter.drawText(cx - QFontMetrics(font).horizontalAdvance(text) // 2,
+                         ty - HANDLE_H - 3, text)
 
 
 class TimelineWidget(QFrame):
@@ -310,7 +328,7 @@ class TimelineWidget(QFrame):
         layout.setSpacing(4)
 
         title = QLabel("✂ Обрезка (IN / OUT)")
-        title.setStyleSheet(f"font-weight: bold; color: {COLORS['text']}; font-size: 11px; background: transparent;")
+        title.setStyleSheet("font-weight: bold; color: %s; font-size: 11px; background: transparent;" % COLORS["text"])
         layout.addWidget(title)
 
         self._bar = _TimelineBar()
@@ -327,20 +345,20 @@ class TimelineWidget(QFrame):
         input_row.addStretch()
 
         input_row.addWidget(QLabel("IN:"))
-        self._spin_in = _TrimSpinBox()
-        self._spin_in.valueChanged.connect(self._on_spin_in_changed)
-        input_row.addWidget(self._spin_in)
+        self._time_in = _TimeInput()
+        self._time_in.valueChanged.connect(self._on_time_in_changed)
+        input_row.addWidget(self._time_in)
 
         input_row.addSpacing(12)
 
         input_row.addWidget(QLabel("OUT:"))
-        self._spin_out = _TrimSpinBox()
-        self._spin_out.valueChanged.connect(self._on_spin_out_changed)
-        input_row.addWidget(self._spin_out)
+        self._time_out = _TimeInput()
+        self._time_out.valueChanged.connect(self._on_time_out_changed)
+        input_row.addWidget(self._time_out)
 
         input_row.addStretch()
         self._dur_label = QLabel("")
-        self._dur_label.setStyleSheet(f"color: {COLORS['text3']}; background: transparent;")
+        self._dur_label.setStyleSheet("color: %s; background: transparent;" % COLORS["text3"])
         input_row.addWidget(self._dur_label)
 
         layout.addLayout(input_row)
@@ -359,105 +377,98 @@ class TimelineWidget(QFrame):
             return
         self._duration = dur
         self._bar.set_duration(dur)
-        self._update_spins()
-        self._dur_label.setText(f"⏱ {_fmt_trim(dur)}")
+        self._update_inputs()
+        self._dur_label.setText("⏱ " + _fmt_trim(dur))
         self._generate_background(path, dur)
         self.setVisible(True)
 
     def get_trim(self, path: Path) -> tuple[float, float]:
         if path == self._current_path and self._duration > 0:
-            start, end = self._bar.get_trim()
-            return (start, end if end < self._duration else 0.0)
+            s, e = self._bar.get_trim()
+            return (s, e if e < self._duration else 0.0)
         return (0.0, 0.0)
 
     def set_trim_silent(self, start: float, end: float) -> None:
-        """Установить trim без эмиссии сигнала (для восстановления из памяти)."""
+        """Установить trim без эмиссии сигнала (восстановление из памяти)."""
         self._bar.trim_changed.disconnect()
-        self._spin_in.blockSignals(True)
-        self._spin_out.blockSignals(True)
-        self._spin_in.setValue(start)
-        self._spin_out.setValue(end)
-        self._spin_in.setMaximum(end - 0.1)
-        self._spin_out.setMinimum(start + 0.1)
-        self._spin_in.blockSignals(False)
-        self._spin_out.blockSignals(False)
+        self._time_in.blockSignals(True)
+        self._time_out.blockSignals(True)
+        self._time_in.setValue(start)
+        self._time_out.setValue(end)
+        self._time_in.blockSignals(False)
+        self._time_out.blockSignals(False)
         self._bar.set_trim(start, end)
         self._bar.trim_changed.connect(self._on_bar_changed)
 
     def _on_bar_changed(self, start: float, end: float):
-        self._spin_in.blockSignals(True)
-        self._spin_out.blockSignals(True)
-        self._spin_in.setValue(start)
-        self._spin_out.setValue(end)
-        self._spin_in.blockSignals(False)
-        self._spin_out.blockSignals(False)
+        self._time_in.blockSignals(True)
+        self._time_out.blockSignals(True)
+        self._time_in.setValue(start)
+        self._time_out.setValue(end)
+        self._time_in.blockSignals(False)
+        self._time_out.blockSignals(False)
         self._emit_trim()
 
-    def _on_spin_in_changed(self, value: float):
+    def _on_time_in_changed(self, value: float):
         if self._duration <= 0:
             return
-        in_val = max(0.0, min(value, self._spin_out.value() - 0.1))
+        out_v = self._time_out.value()
+        in_val = max(0.0, min(value, out_v - 0.1))
         if abs(in_val - value) > 0.001:
-            self._spin_in.blockSignals(True)
-            self._spin_in.setValue(in_val)
-            self._spin_in.blockSignals(False)
-        self._spin_out.setMinimum(in_val + 0.1)
-        self._bar.set_trim(in_val, self._spin_out.value())
+            self._time_in.blockSignals(True)
+            self._time_in.setValue(in_val)
+            self._time_in.blockSignals(False)
+        self._bar.set_trim(in_val, out_v)
         self._emit_trim()
 
-    def _on_spin_out_changed(self, value: float):
+    def _on_time_out_changed(self, value: float):
         if self._duration <= 0:
             return
-        out_val = max(self._spin_in.value() + 0.1, min(value, self._duration))
+        in_v = self._time_in.value()
+        out_val = max(in_v + 0.1, min(value, self._duration))
         if abs(out_val - value) > 0.001:
-            self._spin_out.blockSignals(True)
-            self._spin_out.setValue(out_val)
-            self._spin_out.blockSignals(False)
-        self._spin_in.setMaximum(out_val - 0.1)
-        self._bar.set_trim(self._spin_in.value(), out_val)
+            self._time_out.blockSignals(True)
+            self._time_out.setValue(out_val)
+            self._time_out.blockSignals(False)
+        self._bar.set_trim(in_v, out_val)
         self._emit_trim()
 
     def _reset(self):
         if self._duration > 0:
-            self._spin_in.blockSignals(True)
-            self._spin_out.blockSignals(True)
-            self._spin_in.setValue(0.0)
-            self._spin_out.setValue(self._duration)
-            self._spin_in.setMaximum(self._duration)
-            self._spin_out.setMinimum(0.0)
-            self._spin_in.blockSignals(False)
-            self._spin_out.blockSignals(False)
+            self._time_in.blockSignals(True)
+            self._time_out.blockSignals(True)
+            self._time_in.setValue(0.0)
+            self._time_out.setValue(self._duration)
+            self._time_in.blockSignals(False)
+            self._time_out.blockSignals(False)
             self._bar.set_trim(0.0, self._duration)
             self._emit_trim()
 
-    def _update_spins(self):
-        self._spin_in.blockSignals(True)
-        self._spin_out.blockSignals(True)
-        self._spin_in.setRange(0.0, self._duration)
-        self._spin_in.setValue(0.0)
-        self._spin_out.setRange(0.0, self._duration)
-        self._spin_out.setValue(self._duration)
-        self._spin_in.blockSignals(False)
-        self._spin_out.blockSignals(False)
+    def _update_inputs(self):
+        self._time_in.blockSignals(True)
+        self._time_out.blockSignals(True)
+        self._time_in.setValue(0.0)
+        self._time_out.setValue(self._duration)
+        self._time_in.blockSignals(False)
+        self._time_out.blockSignals(False)
 
     def _emit_trim(self):
         if self._current_path:
-            start, end = self._bar.get_trim()
-            self.trim_changed.emit(self._current_path, start, end)
+            s, e = self._bar.get_trim()
+            self.trim_changed.emit(self._current_path, s, e)
+
+    # ── Фоновая подложка ──────────────────────────────────────────────
 
     def _generate_background(self, path: Path, duration: float) -> None:
         def gen():
-            pix = self._gen_image(path, duration)
-            self._bar.set_bg_pixmap(pix)
+            self._bar.set_bg_pixmap(self._gen_image(path, duration))
         threading.Thread(target=gen, daemon=True).start()
 
     def _gen_image(self, path: Path, duration: float) -> QPixmap | None:
         ext = path.suffix.lower()
         ffmpeg = Converter._tool_path("ffmpeg")
-        if ext in VIDEO_INPUT:
-            return self._gen_video_strip(path, ffmpeg)
-        else:
-            return self._gen_waveform(path, ffmpeg)
+        return (self._gen_video_strip(path, ffmpeg) if ext in VIDEO_INPUT
+                else self._gen_waveform(path, ffmpeg))
 
     def _gen_waveform(self, path: Path, ffmpeg: str) -> QPixmap | None:
         out = self._img_dir / f"w{path.stem}_{int(time.time() * 1000)}.png"
@@ -481,18 +492,16 @@ class TimelineWidget(QFrame):
         out = self._img_dir / f"s{path.stem}_{int(time.time() * 1000)}.png"
         try:
             n = 16
-            fps = n / max(self._duration, 1)
             r = subprocess.run(
                 [ffmpeg, "-i", str(path),
-                 "-vf", f"fps={fps:.3f},scale=50:-1,tile={n}x1",
+                 "-vf", f"fps={n / max(self._duration, 1):.3f},scale=50:-1,tile={n}x1",
                  "-frames:v", "1", "-y", str(out)],
                 capture_output=True, text=True, timeout=60,
             )
             if r.returncode == 0 and out.exists() and out.stat().st_size > 0:
                 pix = QPixmap(str(out))
                 out.unlink(missing_ok=True)
-                if not pix.isNull():
-                    return pix.scaledToHeight(TRACK_H, Qt.SmoothTransformation)
+                return pix.scaledToHeight(TRACK_H, Qt.SmoothTransformation) if not pix.isNull() else None
         except Exception as e:
             log.debug("strip err: %s", e)
         return None
