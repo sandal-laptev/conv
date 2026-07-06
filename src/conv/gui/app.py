@@ -437,13 +437,13 @@ class ConvApp(QMainWindow):
             file_done_signal = Signal(object, object)  # path, result
             finished_signal = Signal(object, bool)  # results, cancelled
 
-            def __init__(self, converter, paths, out_dir, params, preview):
+            def __init__(self, converter, paths, out_dir, params, trim_map):
                 super().__init__()
                 self.converter = converter
                 self.paths = paths
                 self.out_dir = out_dir
                 self.params = params
-                self.preview = preview
+                self.trim_map = trim_map  # {Path: (start, end)} — захвачено до треда
                 self._cancel = False
 
             def cancel(self):
@@ -461,13 +461,13 @@ class ConvApp(QMainWindow):
                 for i, p in enumerate(self.paths):
                     if self._cancel:
                         break
+                    ts, te = self.trim_map.get(p, (0.0, 0.0))
                     if p.suffix.lower() not in VIDEO_INPUT:
                         req = ConvertRequest(p, self.out_dir, output_format=vfmt,
                                              quality=self.params.quality,
                                              max_size=self.params.max_size,
                                              sort_by_type=sort,
-                                             trim_start=self.preview.get_trim(p)[0],
-                                             trim_end=self.preview.get_trim(p)[1])
+                                             trim_start=ts, trim_end=te)
                         res = self.converter.convert_one(req)
                         self.file_done_signal.emit(p, res)
                         results.append(res)
@@ -475,8 +475,7 @@ class ConvApp(QMainWindow):
                         vp, ap, err = self.converter.split_audio_video(
                             p, self.out_dir, vfmt, audio_fmt,
                             self.params.quality,
-                            self.preview.get_trim(p)[0],
-                            self.preview.get_trim(p)[1],
+                            ts, te,
                             sort_by_type=sort,
                         )
                         res = ConvertResult(
@@ -490,12 +489,11 @@ class ConvApp(QMainWindow):
 
                 self.finished_signal.emit(results, self._cancel)
 
-        audio_fmt = self.params.audio_split_format
-        sort = self.params.sort_by_type
-        video_fmt = self.params.format_name or 'mp4'
+        # Захватываем trim ДО старта треда (из главного потока)
+        trim_map = {p: self.preview.get_trim(p) for p in paths}
 
         self._split_worker = SplitWorker(
-            self.converter, paths, out_dir, self.params, self.preview,
+            self.converter, paths, out_dir, self.params, trim_map,
         )
         self._split_thread = QThread(self)
         self._split_worker.moveToThread(self._split_thread)
