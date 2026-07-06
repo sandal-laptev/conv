@@ -531,7 +531,10 @@ class ConvApp(QMainWindow):
     # ── Горячие клавиши ───────────────────────────────────────────────
 
     def _setup_shortcuts(self):
-        _sc = lambda *a, **kw: QShortcut(*a, **kw, context=Qt.ApplicationShortcut, parent=self)
+        def _sc(keys: str):
+            s = QShortcut(QKeySequence(keys), self)
+            s.setContext(Qt.ApplicationShortcut)
+            return s
 
         _sc(QKeySequence("Ctrl+A")).activated.connect(
             lambda: self.file_table.set_all_checked(True))
