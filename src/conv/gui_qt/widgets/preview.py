@@ -7,14 +7,6 @@ from pathlib import Path
 
 from PIL import Image as PILImage
 from PySide6.QtCore import Qt, QUrl, Signal
-
-# QTimeRange появился в Qt 6.5 (PySide6 6.5+).
-# На более старых версиях — setPlaybackRange через (int, int) недоступен.
-try:
-    from PySide6.QtCore import QTimeRange
-    HAS_TIME_RANGE = True
-except ImportError:
-    HAS_TIME_RANGE = False
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
@@ -86,6 +78,8 @@ class _VideoPlayerWidget(QWidget):
         super().__init__(parent)
         self._player = QMediaPlayer(self)
         self._user_dragging = False
+        self._range_start_ms: int = 0
+        self._range_end_ms: int = -1  # -1 = до конца
         self._build_ui()
 
     def _build_ui(self):
@@ -138,11 +132,11 @@ class _VideoPlayerWidget(QWidget):
     # ── Публичное API ──────────────────────────────────────────────────
 
     def load(self, path: Path) -> None:
-        """Загрузить видеофайл и сбросить обрезку на полный диапазон."""
+        """Загрузить видеофайл, сбросить обрезку на весь файл."""
         self._player.stop()
         self._player.setSource(QUrl.fromLocalFile(str(path)))
-        if HAS_TIME_RANGE:
-            self._player.setPlaybackRange(QTimeRange(0, -1))
+        self._range_start_ms = 0
+        self._range_end_ms = -1
         self._time_label.setText("00:00 / 00:00")
         self._pos_slider.setValue(0)
 
@@ -152,22 +146,20 @@ class _VideoPlayerWidget(QWidget):
 
     def set_playback_range(self, start_sec: float, end_sec: float,
                            duration: float) -> None:
-        """Установить диапазон воспроизведения (IN/OUT с таймлайна).
+        """Ограничить воспроизведение отрезком [start, end].
 
-        Показывает только выбранный отрезок. При остановке за пределами
-        диапазона — возвращается на начало выреза.
+        Работает на любой версии PySide6 — range реализован через
+        positionChanged, без QTimeRange.
         """
-        if not HAS_TIME_RANGE:
-            return  # setPlaybackRange недоступен в этой версии PySide6
-        start_ms = max(0, int(start_sec * 1000))
+        self._range_start_ms = max(0, int(start_sec * 1000))
         if end_sec > 0 and end_sec < duration:
-            end_ms = int(end_sec * 1000)
+            self._range_end_ms = int(end_sec * 1000)
         else:
-            end_ms = -1  # до конца
-        self._player.setPlaybackRange(QTimeRange(start_ms, end_ms))
+            self._range_end_ms = -1
+        # Если плеер за границами — возвращаем на IN
         cur = self._player.position()
-        if cur < start_ms or (end_ms > 0 and cur > end_ms):
-            self._player.setPosition(start_ms)
+        if cur < self._range_start_ms or (self._range_end_ms > 0 and cur > self._range_end_ms):
+            self._player.setPosition(self._range_start_ms)
 
     # ── Внутреннее ─────────────────────────────────────────────────────
 
@@ -195,7 +187,14 @@ class _VideoPlayerWidget(QWidget):
 
     def _on_position_changed(self, pos: int) -> None:
         if self._user_dragging:
-            return  # не мешаем пользователю
+            return
+
+        # ── Range guard: не пускаем за OUT ──
+        if self._range_end_ms > 0 and pos >= self._range_end_ms:
+            self._player.stop()
+            self._player.setPosition(self._range_start_ms)
+            return
+
         dur = self._player.duration()
         if dur > 0:
             self._pos_slider.setValue(int(pos / dur * 1000))
