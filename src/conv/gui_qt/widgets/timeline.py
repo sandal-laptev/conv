@@ -8,8 +8,8 @@ import threading
 import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPen, QPixmap
+from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPen, QPixmap, QPolygon
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFrame,
@@ -27,39 +27,31 @@ from conv.logger import get_logger
 
 log = get_logger("conv.gui_qt.timeline")
 
-# Константы отрисовки
 TRACK_H = 48
 MARKER_W = 3
 HANDLE_W = 10
 HANDLE_H = 10
 MARGIN = 6
-COLOR_IN = "#00e676"        # зелёный — IN
-COLOR_OUT = "#ff1744"       # красный — OUT
-COLOR_TRACK = "#0f3460"     # фон дорожки
-COLOR_CUT = "#000000"       # затемнение обрезаемого
+COLOR_IN = "#00e676"
+COLOR_OUT = "#ff1744"
+COLOR_TRACK = "#0f3460"
 
 
 def _fmt_trim(sec: float) -> str:
-    """MM:SS."""
     m, s = divmod(int(sec), 60)
     return f"{m:02d}:{s:02d}"
 
 
 def _fmt_trim2(sec: float) -> str:
-    """MM:SS.mmm."""
     m, s = divmod(int(sec), 60)
     ms = int((sec - int(sec)) * 1000)
     return f"{m:02d}:{s:02d}.{ms:03d}"
 
 
 class _TimelineBar(QWidget):
-    """Кастомный виджет — полоса с двумя перетаскиваемыми маркерами.
+    """Полоса с двумя маркерами. Затемняются обрезаемые края, центр прозрачен."""
 
-    ✅ Затемняются обрезаемые области (по краям), центральный сегмент прозрачен.
-    ✅ Range-drag: перетаскивание за центр перемещает оба маркера вместе.
-    """
-
-    trim_changed = Signal(float, float)  # start_sec, end_sec
+    trim_changed = Signal(float, float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -72,12 +64,10 @@ class _TimelineBar(QWidget):
         self._out_sec: float = 0.0
         self._bg_pixmap: QPixmap | None = None
 
-        self._drag: str | None = None  # "in" | "out" | "range" | None
+        self._drag: str | None = None
         self._hover: str | None = None
         self._drag_start_x: float = 0.0
         self._drag_range_len: float = 0.0
-
-    # ── Публичное API ──────────────────────────────────────────────────
 
     def set_duration(self, sec: float) -> None:
         self._duration = max(0.0, sec)
@@ -98,8 +88,6 @@ class _TimelineBar(QWidget):
     def set_bg_pixmap(self, pixmap: QPixmap | None) -> None:
         self._bg_pixmap = pixmap
         self.update()
-
-    # ── Координаты ─────────────────────────────────────────────────────
 
     def _track_left(self) -> float:
         return float(MARGIN + HANDLE_W // 2 + 2)
@@ -122,20 +110,19 @@ class _TimelineBar(QWidget):
         frac = (x - self._track_left()) / tw
         return max(0.0, min(self._duration, frac * self._duration))
 
-    # ── События мыши ──────────────────────────────────────────────────
+    def _hit_marker(self, x: float, sec: float) -> bool:
+        cx = self._sec_to_x(sec)
+        half = HANDLE_W // 2 + 2
+        return (cx - half) <= x <= (cx + half)
 
     def mousePressEvent(self, event):
         if event.button() != Qt.LeftButton or self._duration <= 0:
             return
         x = event.position().x()
-
-        # Приоритет: маркер IN → маркер OUT → центр (range-drag)
         for tag, sec in [("in", self._in_sec), ("out", self._out_sec)]:
             if self._hit_marker(x, sec):
                 self._drag = tag
                 return
-
-        # Между IN и OUT — range-drag
         in_x = self._sec_to_x(self._in_sec)
         out_x = self._sec_to_x(self._out_sec)
         if in_x <= x <= out_x:
@@ -146,24 +133,21 @@ class _TimelineBar(QWidget):
     def mouseMoveEvent(self, event):
         x = event.position().x()
         if not self._drag or self._duration <= 0:
-            # Ховер
             old = self._hover
             self._hover = None
             for tag, sec in [("out", self._out_sec), ("in", self._in_sec)]:
                 if self._hit_marker(x, sec):
                     self._hover = tag
                     break
-            if old != self._hover and old is not None:
+            if old != self._hover:
                 self.setCursor(Qt.ArrowCursor if self._hover is None
                                else Qt.PointingHandCursor)
             return
 
         if self._drag == "in":
-            sec = self._x_to_sec(x)
-            self._in_sec = max(0.0, min(sec, self._out_sec - 0.1))
+            self._in_sec = max(0.0, min(self._x_to_sec(x), self._out_sec - 0.1))
         elif self._drag == "out":
-            sec = self._x_to_sec(x)
-            self._out_sec = max(self._in_sec + 0.1, min(sec, self._duration))
+            self._out_sec = max(self._in_sec + 0.1, min(self._x_to_sec(x), self._duration))
         elif self._drag == "range":
             dx_sec = (x - self._drag_start_x) / self._track_width() * self._duration
             new_in = self._in_sec + dx_sec
@@ -182,97 +166,80 @@ class _TimelineBar(QWidget):
             self.setCursor(Qt.ArrowCursor)
             self.update()
 
-    def _hit_marker(self, x: float, sec: float) -> bool:
-        """Попадание в зону маркера (широкую — HANDLE_W + 4px)."""
-        cx = self._sec_to_x(sec)
-        half = HANDLE_W // 2 + 2
-        return (cx - half) <= x <= (cx + half)
-
-    # ── Отрисовка ──────────────────────────────────────────────────────
-
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
 
-        w = self.width()
-        tl = self._track_left()
-        tr = self._track_right()
-        ty = HANDLE_H + 2
-        tw = tr - tl
+        try:
+            tl = int(self._track_left())
+            tr = int(self._track_right())
+            ty = HANDLE_H + 2
+            tw = tr - tl
 
-        if self._duration <= 0:
+            if self._duration <= 0:
+                painter.setPen(QColor(COLORS["text3"]))
+                painter.drawText(self.rect(), Qt.AlignCenter, "Нет данных о длительности")
+                return
+
+            # ── Подложка ──
+            painter.fillRect(tl, ty, tw, TRACK_H, QColor(COLOR_TRACK))
+            if self._bg_pixmap and not self._bg_pixmap.isNull():
+                scaled = self._bg_pixmap.scaled(
+                    tw, TRACK_H, Qt.IgnoreAspectRatio, Qt.SmoothTransformation,
+                )
+                painter.drawPixmap(tl, ty, scaled)
+
+            in_x = int(self._sec_to_x(self._in_sec))
+            out_x = int(self._sec_to_x(self._out_sec))
+
+            # ── Затемнение ОБРЕЗАЕМЫХ краёв ──
+            if self._in_sec > 0:
+                painter.fillRect(tl, ty, in_x - tl, TRACK_H, QColor(0, 0, 0, 191))
+            if self._out_sec < self._duration:
+                painter.fillRect(out_x, ty, tr - out_x, TRACK_H, QColor(0, 0, 0, 191))
+
+            # ── Рамки IN/OUT ──
+            painter.setPen(QPen(QColor(COLOR_IN), 2))
+            painter.drawLine(in_x, ty, in_x, ty + TRACK_H)
+            painter.setPen(QPen(QColor(COLOR_OUT), 2))
+            painter.drawLine(out_x, ty, out_x, ty + TRACK_H)
+
+            # ── Ручки ──
+            self._draw_handle(painter, self._in_sec, COLOR_IN, in_x, ty)
+            self._draw_handle(painter, self._out_sec, COLOR_OUT, out_x, ty)
+
+            # ── Подписи ──
             painter.setPen(QColor(COLORS["text3"]))
-            painter.drawText(self.rect(), Qt.AlignCenter,
-                             "Нет данных о длительности")
+            font = painter.font()
+            font.setPointSize(8)
+            painter.setFont(font)
+            fm = QFontMetrics(font)
+            labels = [
+                (tl, _fmt_trim(0.0)),
+                (int((tl + tr) / 2 - 20), _fmt_trim(self._duration / 2)),
+                (tr - fm.horizontalAdvance("99:99"), _fmt_trim(self._duration)),
+            ]
+            for lx, ltxt in labels:
+                painter.drawText(lx, ty + TRACK_H + 15, ltxt)
+        finally:
             painter.end()
-            return
-
-        # ── Подложка (waveform/strip) ──
-        painter.fillRect(int(tl), ty, int(tw), TRACK_H, QColor(COLOR_TRACK))
-        if self._bg_pixmap and not self._bg_pixmap.isNull():
-            scaled = self._bg_pixmap.scaled(
-                int(tw), TRACK_H, Qt.IgnoreAspectRatio, Qt.SmoothTransformation,
-            )
-            painter.drawPixmap(int(tl), ty, scaled)
-
-        # ── Координаты маркеров ──
-        in_x = self._sec_to_x(self._in_sec)
-        out_x = self._sec_to_x(self._out_sec)
-
-        # ── Затемнение ОБРЕЗАЕМЫХ областей (существенное) ──
-        # Слева от IN: обрезается → чёрный с 75%
-        if self._in_sec > 0:
-            painter.fillRect(int(tl), ty, int(in_x - tl), TRACK_H,
-                             QColor(0, 0, 0, 191))  # 75%
-
-        # Справа от OUT: обрезается → чёрный с 75%
-        if self._out_sec < self._duration:
-            painter.fillRect(int(out_x), ty, int(tr - out_x), TRACK_H,
-                             QColor(0, 0, 0, 191))  # 75%
-
-        # ── Тонкая рамка IN/OUT для ясности ──
-        painter.setPen(QPen(QColor(COLOR_IN), 2))
-        painter.drawLine(int(in_x), ty, int(in_x), ty + TRACK_H)
-        painter.setPen(QPen(QColor(COLOR_OUT), 2))
-        painter.drawLine(int(out_x), ty, int(out_x), ty + TRACK_H)
-
-        # ── Маркеры-ручки ──
-        self._draw_handle(painter, self._in_sec, COLOR_IN, "IN", in_x, ty)
-        self._draw_handle(painter, self._out_sec, COLOR_OUT, "OUT", out_x, ty)
-
-        # ── Подписи времени ──
-        painter.setPen(QColor(COLORS["text3"]))
-        font = painter.font()
-        font.setPointSize(8)
-        painter.setFont(font)
-        fm = QFontMetrics(font)
-
-        labels = [
-            (int(tl), _fmt_trim(0.0)),
-            (int((tl + tr) / 2 - 20), _fmt_trim(self._duration / 2)),
-            (int(tr - fm.horizontalAdvance("99:99")), _fmt_trim(self._duration)),
-        ]
-        for lx, ltxt in labels:
-            painter.drawText(lx, ty + TRACK_H + 15, ltxt)
-
-        painter.end()
 
     def _draw_handle(self, painter: QPainter, sec: float, color: str,
-                     label: str, cx: int, ty: int) -> None:
+                     cx: int, ty: int) -> None:
         half = HANDLE_W // 2
         y0 = ty
 
-        # Треугольник-ручка
+        # Треугольник через QPolygon (PySide6 не принимает list of tuples)
         painter.setBrush(QColor(color))
         painter.setPen(Qt.NoPen)
-        painter.drawPolygon([
-            (cx - half, y0),
-            (cx + half, y0),
-            (cx, y0 - HANDLE_H),
-        ])
+        poly = QPolygon()
+        poly.append(QPoint(cx - half, y0))
+        poly.append(QPoint(cx + half, y0))
+        poly.append(QPoint(cx, y0 - HANDLE_H))
+        painter.drawPolygon(poly)
 
-        # Метка времени над ручкой
+        # Метка
         painter.setPen(QColor(color))
         font = painter.font()
         font.setPointSize(8)
@@ -280,8 +247,7 @@ class _TimelineBar(QWidget):
         painter.setFont(font)
         fm = QFontMetrics(font)
         text = _fmt_trim2(sec)
-        tw = fm.horizontalAdvance(text)
-        painter.drawText(cx - tw // 2, y0 - HANDLE_H - 3, text)
+        painter.drawText(cx - fm.horizontalAdvance(text) // 2, y0 - HANDLE_H - 3, text)
 
 
 class _TrimSpinBox(QDoubleSpinBox):
@@ -320,11 +286,7 @@ class _TrimSpinBox(QDoubleSpinBox):
 
 
 class TimelineWidget(QFrame):
-    """Виджет обрезки: визуальная шкала + поля ввода IN/OUT.
-
-    Сигналы:
-      trim_changed(path: Path, start_sec: float, end_sec: float)
-    """
+    """Виджет обрезки: визуальная шкала + поля ввода IN/OUT."""
 
     trim_changed = Signal(object, float, float)
 
@@ -340,7 +302,6 @@ class TimelineWidget(QFrame):
                       border: 1px solid {COLORS['border']};
                       border-radius: 4px; }}
         """)
-
         self._build_ui()
 
     def _build_ui(self):
@@ -349,18 +310,13 @@ class TimelineWidget(QFrame):
         layout.setSpacing(4)
 
         title = QLabel("✂ Обрезка (IN / OUT)")
-        title.setStyleSheet(
-            f"font-weight: bold; color: {COLORS['text']}; "
-            f"font-size: 11px; background: transparent;"
-        )
+        title.setStyleSheet(f"font-weight: bold; color: {COLORS['text']}; font-size: 11px; background: transparent;")
         layout.addWidget(title)
 
-        # Полоса
         self._bar = _TimelineBar()
         self._bar.trim_changed.connect(self._on_bar_changed)
         layout.addWidget(self._bar)
 
-        # Поля ввода + кнопки
         input_row = QHBoxLayout()
         input_row.setSpacing(6)
 
@@ -368,7 +324,6 @@ class TimelineWidget(QFrame):
         self._btn_reset.setFixedWidth(80)
         self._btn_reset.clicked.connect(self._reset)
         input_row.addWidget(self._btn_reset)
-
         input_row.addStretch()
 
         input_row.addWidget(QLabel("IN:"))
@@ -384,33 +339,24 @@ class TimelineWidget(QFrame):
         input_row.addWidget(self._spin_out)
 
         input_row.addStretch()
-
         self._dur_label = QLabel("")
-        self._dur_label.setStyleSheet(
-            f"color: {COLORS['text3']}; background: transparent;"
-        )
+        self._dur_label.setStyleSheet(f"color: {COLORS['text3']}; background: transparent;")
         input_row.addWidget(self._dur_label)
 
         layout.addLayout(input_row)
-
-    # ── Публичное API ──────────────────────────────────────────────────
 
     def set_file(self, path: Path | None) -> None:
         self._current_path = path
         self._bar.set_duration(0.0)
         self._duration = 0.0
-
         if path is None:
             self.setVisible(False)
             return
-
         info = get_media_info(path)
         dur = info.duration or 0.0
-
         if dur <= 0:
             self.setVisible(False)
             return
-
         self._duration = dur
         self._bar.set_duration(dur)
         self._update_spins()
@@ -437,8 +383,6 @@ class TimelineWidget(QFrame):
         self._spin_out.blockSignals(False)
         self._bar.set_trim(start, end)
         self._bar.trim_changed.connect(self._on_bar_changed)
-
-    # ── Обработчики ────────────────────────────────────────────────────
 
     def _on_bar_changed(self, start: float, end: float):
         self._spin_in.blockSignals(True)
@@ -501,8 +445,6 @@ class TimelineWidget(QFrame):
             start, end = self._bar.get_trim()
             self.trim_changed.emit(self._current_path, start, end)
 
-    # ── Фоновая подложка ───────────────────────────────────────────────
-
     def _generate_background(self, path: Path, duration: float) -> None:
         def gen():
             pix = self._gen_image(path, duration)
@@ -551,7 +493,6 @@ class TimelineWidget(QFrame):
                 out.unlink(missing_ok=True)
                 if not pix.isNull():
                     return pix.scaledToHeight(TRACK_H, Qt.SmoothTransformation)
-            return None
         except Exception as e:
             log.debug("strip err: %s", e)
         return None
