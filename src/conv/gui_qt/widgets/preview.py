@@ -1,4 +1,4 @@
-"""Preview-панель — миниатюра, видеоплеер (с обрезкой), медиа-инфо, таймлайн."""
+"""Preview-панель — миниатюра, видеоплеер (с range IN/OUT), медиа-инфо, таймлайн."""
 
 from __future__ import annotations
 
@@ -33,6 +33,11 @@ def _file_size(path: Path) -> int:
         return path.stat().st_size
     except OSError:
         return 0
+
+
+def _fmt_time2(sec: float) -> str:
+    m, s = divmod(int(sec), 60)
+    return f"{m:02d}:{s:02d}"
 
 
 class _ScaledLabel(QLabel):
@@ -72,14 +77,15 @@ class _ScaledLabel(QLabel):
 
 
 class _VideoPlayerWidget(QWidget):
-    """Виджет видео с поддержкой playbackRange (обрезка на лету)."""
+    """Виджет видео. Слайдер ходит ТОЛЬКО внутри IN/OUT, если range активен."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._player = QMediaPlayer(self)
         self._user_dragging = False
         self._range_start_ms: int = 0
-        self._range_end_ms: int = -1  # -1 = до конца
+        self._range_end_ms: int = -1   # -1 = до конца файла
+        self._range_active: bool = False
         self._build_ui()
 
     def _build_ui(self):
@@ -97,7 +103,6 @@ class _VideoPlayerWidget(QWidget):
         """)
         layout.addWidget(self._video_widget, stretch=1)
 
-        # Панель управления
         controls = QHBoxLayout()
         controls.setSpacing(4)
 
@@ -132,11 +137,12 @@ class _VideoPlayerWidget(QWidget):
     # ── Публичное API ──────────────────────────────────────────────────
 
     def load(self, path: Path) -> None:
-        """Загрузить видеофайл, сбросить обрезку на весь файл."""
+        """Загрузить видео, сбросить range на весь файл."""
         self._player.stop()
         self._player.setSource(QUrl.fromLocalFile(str(path)))
         self._range_start_ms = 0
         self._range_end_ms = -1
+        self._range_active = False
         self._time_label.setText("00:00 / 00:00")
         self._pos_slider.setValue(0)
 
@@ -146,22 +152,31 @@ class _VideoPlayerWidget(QWidget):
 
     def set_playback_range(self, start_sec: float, end_sec: float,
                            duration: float) -> None:
-        """Ограничить воспроизведение отрезком [start, end].
+        """Привязать слайдер к отрезку IN/OUT.
 
-        Работает на любой версии PySide6 — range реализован через
-        positionChanged, без QTimeRange.
+        Слайдер маппится: 0% = IN, 100% = OUT.
+        Перетаскивание и авто-обновление — только внутри диапазона.
         """
+        dur = self._player.duration()
         self._range_start_ms = max(0, int(start_sec * 1000))
         if end_sec > 0 and end_sec < duration:
             self._range_end_ms = int(end_sec * 1000)
         else:
             self._range_end_ms = -1
+
+        full_end = self._range_end_ms if self._range_end_ms > 0 else dur
+        self._range_active = (
+            self._range_start_ms > 0
+            or (self._range_end_ms > 0 and self._range_end_ms < dur)
+        )
+
         # Если плеер за границами — возвращаем на IN
         cur = self._player.position()
         if cur < self._range_start_ms or (self._range_end_ms > 0 and cur > self._range_end_ms):
             self._player.setPosition(self._range_start_ms)
+            self._update_slider_from_pos(self._range_start_ms, dur)
 
-    # ── Внутреннее ─────────────────────────────────────────────────────
+    # ── Управление ─────────────────────────────────────────────────────
 
     def _toggle_play(self) -> None:
         if self._player.playbackState() == QMediaPlayer.PlayingState:
@@ -170,17 +185,46 @@ class _VideoPlayerWidget(QWidget):
             self._player.play()
 
     def _seek(self, value: int) -> None:
+        """Перемотка. Если range активен — value 0..1000 = IN..OUT."""
         dur = self._player.duration()
-        if dur > 0:
-            self._player.setPosition(int(value / 1000 * dur))
+        if dur <= 0:
+            return
+        if self._range_active:
+            end = self._range_end_ms if self._range_end_ms > 0 else dur
+            pos = self._range_start_ms + int(value / 1000 * (end - self._range_start_ms))
+            pos = max(self._range_start_ms, min(end, pos))
+        else:
+            pos = int(value / 1000 * dur)
+        self._player.setPosition(pos)
+
+    def _update_slider_from_pos(self, pos: int, dur: int) -> None:
+        """Обновить слайдер и метку времени из текущей позиции плеера."""
+        if dur <= 0:
+            return
+        if self._range_active:
+            end = self._range_end_ms if self._range_end_ms > 0 else dur
+            span = end - self._range_start_ms
+            if span > 0:
+                val = int((pos - self._range_start_ms) / span * 1000)
+                val = max(0, min(1000, val))
+            else:
+                val = 0
+            cur_str = _fmt_time2(pos / 1000)
+            total_str = _fmt_time2(span / 1000)
+        else:
+            val = int(pos / dur * 1000)
+            cur_str = _fmt_time2(pos / 1000)
+            total_str = _fmt_time2(dur / 1000)
+        self._pos_slider.setValue(val)
+        self._time_label.setText(f"{cur_str} / {total_str}")
+
+    # ── Обработчики ────────────────────────────────────────────────────
 
     def _on_slider_pressed(self) -> None:
         self._user_dragging = True
 
     def _on_slider_released(self) -> None:
         self._user_dragging = False
-        # Применяем позицию (уже установленную через sliderMoved → _seek)
-        # Просто снимаем флаг блокировки
 
     def _on_duration_changed(self, duration: int) -> None:
         self._pos_slider.setValue(0)
@@ -189,32 +233,23 @@ class _VideoPlayerWidget(QWidget):
         if self._user_dragging:
             return
 
-        # ── Range guard: не пускаем за OUT ──
+        dur = self._player.duration()
+
+        # Range guard: не пускаем за OUT
         if self._range_end_ms > 0 and pos >= self._range_end_ms:
             self._player.stop()
             self._player.setPosition(self._range_start_ms)
+            self._update_slider_from_pos(self._range_start_ms, dur)
             return
 
-        dur = self._player.duration()
         if dur > 0:
-            self._pos_slider.setValue(int(pos / dur * 1000))
-            cur = _fmt_time2(pos / 1000)
-            total = _fmt_time2(dur / 1000)
-            self._time_label.setText(f"{cur} / {total}")
+            self._update_slider_from_pos(pos, dur)
 
     def _on_state_changed(self, state):
-        if state == QMediaPlayer.PlayingState:
-            self._btn_play.setText("⏸")
-        else:
-            self._btn_play.setText("▶")
+        self._btn_play.setText("⏸" if state == QMediaPlayer.PlayingState else "▶")
 
     def _on_error(self, error, error_string):
         self._time_label.setText(f"⚠ {error_string}")
-
-
-def _fmt_time2(sec: float) -> str:
-    m, s = divmod(int(sec), 60)
-    return f"{m:02d}:{s:02d}"
 
 
 class PreviewPanel(QWidget):
@@ -317,16 +352,9 @@ class PreviewPanel(QWidget):
              fmt_var: str = "", quality: int = 85,
              max_size: int = 0) -> None:
         """Показать предпросмотр. Сохраняет/восстанавливает trim из _trim_map."""
-        old_path = self._current_path
-
-        # Сохраняем trim для старого файла
-        if old_path and old_path in self._trim_map:
-            pass  # уже сохранён через _on_trim_changed
-
         self._current_path = path
         ext = path.suffix.lower()
 
-        # Навигация
         self._nav_label.setText(f"{idx + 1} / {total}")
         self._btn_prev.setEnabled(idx > 0)
         self._btn_next.setEnabled(idx < total - 1)
@@ -340,7 +368,6 @@ class PreviewPanel(QWidget):
         lines = [f"{sym}  {size_str}  →  .{fmt_out}  (q={quality})"]
         is_media = ext in (VIDEO_INPUT | AUDIO_INPUT)
 
-        # Медиа-инфо
         if is_media:
             info = get_media_info(path)
             if info.duration:
@@ -369,7 +396,6 @@ class PreviewPanel(QWidget):
             except Exception:
                 pass
 
-        # Заполняем инфо
         for i, line in enumerate(lines):
             if i < len(self._info_lines):
                 self._info_lines[i].setText(line)
@@ -382,7 +408,6 @@ class PreviewPanel(QWidget):
             self._video_player.load(path)
             self._image_label.clear_image()
             self._timeline.set_file(path)
-            # Восстанавливаем trim, если был сохранён
             self._restore_trim(path)
             return
 
@@ -395,7 +420,6 @@ class PreviewPanel(QWidget):
             self._restore_trim(path)
             return
 
-        # Изо
         self._media_stack.setCurrentIndex(0)
         self._video_player.unload()
         self._timeline.setVisible(False)
@@ -423,27 +447,17 @@ class PreviewPanel(QWidget):
     # ── Trim ───────────────────────────────────────────────────────────
 
     def _on_trim_changed(self, path: Path, start: float, end: float) -> None:
-        """Сохранить trim и применить к видеоплееру."""
         self._trim_map[path] = (start, end)
-        # Обновить playbackRange в плеере (если видео)
-        if path == self._current_path:
-            ext = path.suffix.lower()
-            if ext in VIDEO_INPUT:
-                info = get_media_info(path)
-                self._video_player.set_playback_range(
-                    start, end, info.duration or 0,
-                )
+        # Обновить playbackRange в плеере
+        if path == self._current_path and (path.suffix.lower() in VIDEO_INPUT):
+            info = get_media_info(path)
+            self._video_player.set_playback_range(start, end, info.duration or 0)
 
     def _restore_trim(self, path: Path) -> None:
-        """Восстановить trim из _trim_map после установки таймлайна."""
         saved = self._trim_map.get(path)
         if saved:
             start, end = saved
             self._timeline.set_trim_silent(start, end)
-            # Применить к плееру
-            ext = path.suffix.lower()
-            if ext in VIDEO_INPUT:
+            if path.suffix.lower() in VIDEO_INPUT:
                 info = get_media_info(path)
-                self._video_player.set_playback_range(
-                    start, end, info.duration or 0,
-                )
+                self._video_player.set_playback_range(start, end, info.duration or 0)
