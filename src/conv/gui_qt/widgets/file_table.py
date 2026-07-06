@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QUrl, Qt, Signal
-from PySide6.QtGui import QAction, QDragEnterEvent, QDropEvent, QStandardItem, QStandardItemModel
+from PySide6.QtGui import QAction, QColor, QDragEnterEvent, QDropEvent, QPainter, QPen, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
@@ -47,61 +47,10 @@ HEADERS = ["", "Файл", "Размер", "→ формат", "Статус", "
 
 
 class _DropTreeView(QTreeView):
-    """QTreeView, принимающий дроп файлов из OS.
-
-    Вместо оверлея — меняет border на dashed при драге.
-    """
-
-    _DRAG_STYLE = """
-        QTreeView {
-            border: 3px dashed #00d2ff !important;
-            border-radius: 6px;
-        }
-    """
-
-    files_dropped = Signal(object)  # list[Path]
-
+    """QTreeView, стиль меняется при драге через FileTableWidget."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAcceptDrops(True)
-        self._normal_style: str = ""
-
-    def dragEnterEvent(self, event: QDragEnterEvent):
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-            if not self._normal_style:
-                self._normal_style = self.styleSheet()
-            self.setStyleSheet(self._normal_style + self._DRAG_STYLE)
-
-    def dragMoveEvent(self, event):
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-
-    def dragLeaveEvent(self, event):
-        self.setStyleSheet(self._normal_style)
-
-    def dropEvent(self, event: QDropEvent):
-        self.setStyleSheet(self._normal_style)
-
-        if not event.mimeData().hasUrls():
-            return
-
-        paths: list[Path] = []
-        for url in event.mimeData().urls():
-            if url.isLocalFile():
-                p = Path(url.toLocalFile())
-                if p.exists():
-                    paths.append(p)
-
-        if not paths:
-            return
-
-        event.acceptProposedAction()
-
-        from conv.core import Converter as _Conv
-        collected = _Conv().collect(paths, recursive=True)
-        if collected:
-            self.files_dropped.emit(collected)
 
 
 class FileTableWidget(QWidget):
@@ -125,7 +74,7 @@ class FileTableWidget(QWidget):
         self._target_format: str = ""
         self._drag_over = False
         self._build_ui()
-        self._setup_drag_drop()
+        self.setAcceptDrops(True)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -280,8 +229,48 @@ class FileTableWidget(QWidget):
 
     # ── Drag-n-Drop ─────────────────────────────────────────────────
 
-    def _setup_drag_drop(self):
-        pass  # drag handled by _DropTreeView
+    def _show_drag_border(self, show: bool):
+        self._drag_over = show
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self._drag_over:
+            p = QPainter(self)
+            p.setPen(QPen(QColor("#00d2ff"), 3, Qt.DashLine))
+            p.drawRoundedRect(self.rect().adjusted(3, 3, -3, -3), 8, 8)
+            p.end()
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            self._show_drag_border(True)
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        self._show_drag_border(False)
+
+    def dropEvent(self, event: QDropEvent):
+        self._show_drag_border(False)
+        if not event.mimeData().hasUrls():
+            return
+        paths: list[Path] = []
+        for url in event.mimeData().urls():
+            if url.isLocalFile():
+                p = Path(url.toLocalFile())
+                if p.exists():
+                    paths.append(p)
+        if not paths:
+            return
+        event.acceptProposedAction()
+        from conv.core import Converter as _Conv
+        collected = _Conv().collect(paths, recursive=True)
+        if collected:
+            self.add_files(collected)
+            self.files_dropped.emit(collected)
 
     # ── Построение ─────────────────────────────────────────────────────
 
