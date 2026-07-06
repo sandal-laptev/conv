@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from conv.core import AUDIO_INPUT, VIDEO_INPUT, ConvertResult, _fmt_size as fmt_size
+from conv.gui_qt.i18n import _
 
 
 def _file_icon(path: Path) -> str:
@@ -51,7 +52,7 @@ COL_FORMAT = 3
 COL_STATUS = 4
 COL_RESULT = 5
 
-HEADERS = ["", "Файл", "Размер", "→ формат", "Статус", "Результат"]
+HEADERS = ["", _("col_file"), _("col_size"), _("col_format"), _("col_status"), _("col_result")]
 
 
 class FileTableWidget(QWidget):
@@ -193,6 +194,17 @@ class FileTableWidget(QWidget):
         self.selection_changed.emit()
 
     # ── Управление файлами ─────────────────────────────────────────────
+
+    def retranslate(self) -> None:
+        """Обновить заголовки при смене языка."""
+        HEADERS[COL_NAME] = _("col_file")
+        HEADERS[COL_SIZE] = _("col_size")
+        HEADERS[COL_FORMAT] = _("col_format")
+        HEADERS[COL_STATUS] = _("col_status")
+        HEADERS[COL_RESULT] = _("col_result")
+        self._model.setHorizontalHeaderLabels(HEADERS)
+        # Обновить подсказку дропа
+        self._drop_hint.setText(f"{_('drop_hint')}\n\n{_('drop_hint_sub')}")
 
     def set_target_format(self, fmt: str) -> None:
         self._target_format = fmt
