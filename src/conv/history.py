@@ -146,6 +146,8 @@ class ConfigManager:
     DEFAULTS: dict = {
         "last_output_dir": "",
         "sort_by_type": False,
+        "language": "ru",
+        "theme": "dark",
     }
 
     def __init__(self):
@@ -172,6 +174,26 @@ class ConfigManager:
     def sort_by_type(self, value: bool) -> None:
         self._data["sort_by_type"] = bool(value)
         self._save()
+
+    @property
+    def language(self) -> str:
+        return self._data.get("language", "ru")
+
+    @language.setter
+    def language(self, value: str) -> None:
+        if value in ("ru", "en"):
+            self._data["language"] = value
+            self._save()
+
+    @property
+    def theme(self) -> str:
+        return self._data.get("theme", "dark")
+
+    @theme.setter
+    def theme(self, value: str) -> None:
+        if value in ("dark", "light", "system"):
+            self._data["theme"] = value
+            self._save()
 
     # ── Внутреннее ────────────────────────────────────────────────────
 

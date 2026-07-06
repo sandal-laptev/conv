@@ -30,10 +30,12 @@ dependencies = [
 [project.optional-dependencies]
 heif = ["pillow-heif>=1.0.0"]
 gui = ["customtkinter>=6.0.0", "tkinterdnd2>=0.5.0"]
+gui-qt = ["PySide6>=6.5.0"]
 
 [project.scripts]
 conv = "conv.cli:main"
 conv-gui = "conv.gui:run_gui"
+conv-gui-qt = "conv.gui_qt:run_gui"
 
 [tool.setuptools]
 packages = {find = {where = ["src"]}}
