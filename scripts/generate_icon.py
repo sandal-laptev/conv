@@ -119,23 +119,35 @@ def _draw_icon(size: int) -> Image.Image:
 
 
 def generate_ico(output_path: str | Path) -> None:
-    """Сгенерировать .ico со всеми стандартными размерами."""
+    """Сгенерировать .ico со всеми стандартными размерами (ручная сборка)."""
+    import struct
+    from io import BytesIO
+
     sizes = [16, 24, 32, 48, 64, 128, 256]
-
-    icons: list[Image.Image] = []
-    for s in sizes:
-        img = _draw_icon(s)
-        icons.append(img)
-
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    icons[0].save(
-        str(output),
-        format="ICO",
-        sizes=[(s, s) for s in sizes],
-        append_images=icons[1:],
-    )
-    print(f"✅ ICO created: {output} ({len(icons)} sizes)")
+
+    imgs = [_draw_icon(s) for s in sizes]
+    png_data = []
+    for img in imgs:
+        buf = BytesIO()
+        img.save(buf, format="PNG")
+        png_data.append(buf.getvalue())
+
+    with open(str(output), "wb") as f:
+        # ICO header: reserved=0, type=1 (icon), count
+        f.write(struct.pack("<HHH", 0, 1, len(imgs)))
+        offset = 6 + 16 * len(imgs)
+        for i, sz in enumerate(sizes):
+            w = 0 if sz >= 256 else sz
+            h = 0 if sz >= 256 else sz
+            data = png_data[i]
+            f.write(struct.pack("<BBBBHHII", w, h, 0, 0, 1, 32, len(data), offset))
+            offset += len(data)
+        for data in png_data:
+            f.write(data)
+
+    print(f"✅ ICO: {output} ({len(sizes)} sizes: {sizes})")
 
 
 def generate_png(output_path: str | Path, size: int = 256) -> None:
