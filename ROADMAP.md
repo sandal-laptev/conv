@@ -87,6 +87,23 @@
 - [x] **scripts/build-win.bat** — PyInstaller под Windows
 - [x] Включает ffmpeg/ffprobe, PySide6, pillow-heif
 
+### Аудио-режимы ✅
+- [x] **🔇 Удалить аудио** — `-c:v copy -an` (без перекодирования видео)
+- [x] **✂ Разделить видео+аудио** — два файла рядом (`split_audio_video()`)
+- [x] GUI: выбор режима в параметрах, доп. формат для split
+- [x] CLI: `--no-audio`, `--split-audio [mp3|flac|...]`
+- [x] 🔊 Громкость: QAudioOutput + ползунок + mute
+
+### Исправления
+- [x] `QTimeRange` → программный range guard (нет в PySide6 на Windows)
+- [x] `drawPolygon` → QPolygon (list of tuples не принимается)
+- [x] Stop не сбрасывает позицию (pause + seek вместо stop)
+- [x] Ручной ввод времени (QLineEdit вместо QDoubleSpinBox)
+- [x] Чекбоксы сохраняются при удалении файлов
+- [x] Delete по курсору, а не по чекбоксу
+- [x] QAudioOutput вместо setVolume/setMuted (Qt6 API)
+- [x] `-ss` после `-i` для точной покадровой обрезки
+
 ### В плане 📋
 - [ ] **Автоматическое определение формата** по превью
 

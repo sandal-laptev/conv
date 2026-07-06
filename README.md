@@ -92,6 +92,16 @@ copy ffmpeg-tmp\ffmpeg-*-essentials-build\bin\ffprobe.exe .
 
 ---
 
+### 🎵 Аудио-режимы (GUI + CLI)
+
+| Режим | GUI | CLI | Описание |
+|-------|-----|-----|----------|
+| 🔊 Сохранить | дефолт | — | Аудиодорожка остаётся |
+| 🔇 Удалить | `Аудиодорожка → Удалить` | `--no-audio` | Видео без звука (`-c:v copy -an`, быстро) |
+| ✂ Разделить | `→ Разделить` + формат | `--split-audio mp3` | Два файла рядом: `video.mp4` + `video.mp3` |
+
+---
+
 ## Использование
 
 ### 🖥️ GUI
@@ -155,6 +165,8 @@ conv [-h] [-o OUTPUT] [-f FORMAT] [-q N] [-s PX] [-r] [-j N]
 | `-r, --recursive` | Рекурсивно |
 | `-j, --jobs N` | Параллельных задач |
 | `--preset` | Пресет качества (max / web / fast) |
+| `--no-audio` | Удалить аудиодорожку из видео |
+| `--split-audio FMT` | Разделить видео и аудио в 2 файла (по умолч. mp3) |
 | `--sort-by-type` | Сортировать по типу (video/audio/image) |
 | `--rename-to` | Переименовать (без перекодирования) |
 | `--trim-start/--trim-end` | Обрезка видео/аудио (сек) |
@@ -185,6 +197,12 @@ conv --trim-end 30 clip.mp4
 
 # С сортировкой по типу
 conv -o converted --sort-by-type *.mp4 *.jpg *.flac
+
+# Удалить аудио из видео
+conv --no-audio clip.mp4
+
+# Разделить видео и аудио на два файла
+conv --split-audio mp3 video.mp4
 ```
 
 ---
