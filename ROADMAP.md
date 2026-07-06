@@ -112,9 +112,13 @@
 - [x] **About-диалог** — лицензии, сторонние компоненты, благодарности
 - [x] **Переименование** → MO Kolomyagi Media Converter
 
+### Сборка .exe ✅
+- [x] **scripts/build-win-qt.bat** — сборка под Windows (PyInstaller)
+- [x] **scripts/entry_gui_qt.py** — точка входа для PyInstaller
+- [x] Включает ffmpeg/ffprobe (если рядом), PySide6, pillow-heif
+
 ### В плане 📋
 - [ ] **Автоматическое определение формата** по превью
-- [ ] **Сборка .exe** под Windows через PyInstaller
 
 ## Архитектура GUI
 
