@@ -46,13 +46,6 @@ COL_RESULT = 5
 HEADERS = ["", "Файл", "Размер", "→ формат", "Статус", "Результат"]
 
 
-class _DropTreeView(QTreeView):
-    """QTreeView, стиль меняется при драге через FileTableWidget."""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAcceptDrops(True)
-
-
 class FileTableWidget(QWidget):
     """Таблица файлов с чекбоксами и сортировкой.
 
@@ -83,10 +76,8 @@ class FileTableWidget(QWidget):
         self._model = QStandardItemModel(0, len(HEADERS))
         self._model.setHorizontalHeaderLabels(HEADERS)
 
-        self._tree = _DropTreeView()
+        self._tree = QTreeView()
         self._tree.setModel(self._model)
-        self._tree.files_dropped.connect(self.files_dropped.emit)
-        self._tree.files_dropped.connect(self.add_files)
         self._tree.setRootIsDecorated(False)
         self._tree.setAlternatingRowColors(True)
         self._tree.setSortingEnabled(True)
