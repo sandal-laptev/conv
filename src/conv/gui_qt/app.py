@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QThread, QUrl, Qt
 from PySide6.QtGui import QDesktopServices
+from PySide6.QtWidgets import QSplitter
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -25,6 +26,7 @@ from conv.core import Converter, ConvertRequest, _fmt_size as fmt_size
 from conv.gui_qt.controllers.conversion import ConversionWorker
 from conv.gui_qt.theme import COLORS
 from conv.gui_qt.widgets.file_table import FileTableWidget
+from conv.gui_qt.widgets.preview import PreviewPanel
 from conv.gui_qt.widgets.params import ParamsWidget
 from conv.history import HistoryManager, ConfigManager
 from conv.logger import get_logger, tail as log_tail
@@ -86,10 +88,23 @@ class ConvApp(QMainWindow):
         # Выходная папка
         layout.addLayout(self._build_output_row())
 
-        # Таблица файлов
+        # Контент: таблица файлов + превью
+        content = QSplitter(Qt.Horizontal)
+
         self.file_table = FileTableWidget()
         self.file_table.file_clicked.connect(self._on_file_click)
-        layout.addWidget(self.file_table, stretch=1)
+        content.addWidget(self.file_table)
+
+        self.preview = PreviewPanel()
+        self.preview.prev_clicked.connect(self._preview_prev)
+        self.preview.next_clicked.connect(self._preview_next)
+        content.addWidget(self.preview)
+
+        content.setStretchFactor(0, 3)
+        content.setStretchFactor(1, 2)
+        content.setSizes([660, 440])
+
+        layout.addWidget(content, stretch=1)
 
         # Нижняя панель: прогресс + кнопка конвертации + статус
         layout.addLayout(self._build_bottom())
@@ -214,6 +229,7 @@ class ConvApp(QMainWindow):
 
     def _clear_all(self):
         self.file_table.clear()
+        self.preview.clear()
         self._progress.setValue(0)
         self._status_label.setText("Ожидание файлов...")
         self._stats_label.setText("")
@@ -247,11 +263,46 @@ class ConvApp(QMainWindow):
 
     def _on_format_changed(self):
         self.file_table.set_target_format(self.params.format_name)
+        # Обновить превью если есть активный файл
+        if self.preview.current_path:
+            paths = self.file_table.paths
+            cur = self.preview.current_path
+            if cur in paths:
+                idx = paths.index(cur)
+                self._show_preview(idx)
 
-    # ── Клик по файлу ──────────────────────────────────────────────────
+    # ── Клик по файлу / навигация ─────────────────────────────────────
 
     def _on_file_click(self, idx: int):
-        pass  # для превью в будущем
+        self._show_preview(idx)
+
+    def _preview_prev(self):
+        paths = self.file_table.paths
+        cur = self.preview.current_path
+        if cur and cur in paths:
+            idx = paths.index(cur) - 1
+            if idx >= 0:
+                self._show_preview(idx)
+
+    def _preview_next(self):
+        paths = self.file_table.paths
+        cur = self.preview.current_path
+        if cur and cur in paths:
+            idx = paths.index(cur) + 1
+            if idx < len(paths):
+                self._show_preview(idx)
+
+    def _show_preview(self, idx: int):
+        paths = self.file_table.paths
+        if 0 <= idx < len(paths):
+            self.preview.show(
+                path=paths[idx],
+                idx=idx,
+                total=len(paths),
+                fmt_var=self.params.format_name,
+                quality=self.params.quality,
+                max_size=self.params.max_size,
+            )
 
     # ── Конвертация ────────────────────────────────────────────────────
 

@@ -161,7 +161,7 @@ class FileTableWidget(QWidget):
             self._model.setItem(row, col, item)
 
     def _make_row_items(self, path: Path) -> list[QStandardItem]:
-        from conv.core import resolve_format as resolve_fmt, file_size as fsize
+        from conv.core import resolve_format as resolve_fmt
 
         icon = _file_icon(path)
         target_fmt = self._target_format or resolve_fmt("", path.suffix)
