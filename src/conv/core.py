@@ -914,13 +914,10 @@ class Converter:
             vcodec, acodec = 'libvpx', 'libvorbis'
             extra = ['-b:v', '0', '-b:a', '128k']
 
-        # Обрезка: -ss до -i для быстрого поиска, -to после -i для точного конца
-        cmd: list[str] = []
+        # Обрезка: -ss и -to после -i для точности (ключевые кадры не влияют)
+        cmd = [ffmpeg, '-i', str(src)]
         if trim_start > 0:
-            cmd.extend([ffmpeg, '-ss', self._fmt_trim(trim_start)])
-        else:
-            cmd.append(ffmpeg)
-        cmd.extend(['-i', str(src)])
+            cmd.extend(['-ss', self._fmt_trim(trim_start)])
         if trim_end > 0:
             cmd.extend(['-to', self._fmt_trim(trim_end)])
 
@@ -968,13 +965,10 @@ class Converter:
         elif fmt_out == 'opus':
             params = ['-codec:a', 'libopus', '-b:a', '128k']
 
-        # Обрезка: -ss до -i, -to после -i
-        cmd: list[str] = []
+        # Обрезка: -ss и -to после -i для точности
+        cmd = [ffmpeg, '-i', str(src)]
         if trim_start > 0:
-            cmd.extend([ffmpeg, '-ss', self._fmt_trim(trim_start)])
-        else:
-            cmd.append(ffmpeg)
-        cmd.extend(['-i', str(src)])
+            cmd.extend(['-ss', self._fmt_trim(trim_start)])
         if trim_end > 0:
             cmd.extend(['-to', self._fmt_trim(trim_end)])
         cmd.extend(params + ['-y', str(dst)])

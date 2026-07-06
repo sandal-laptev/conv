@@ -210,8 +210,9 @@ class _VideoPlayerWidget(QWidget):
         self._player.setPosition(pos)
 
     def _toggle_mute(self) -> None:
-        self._player.setMuted(not self._player.isMuted())
-        self._btn_mute.setText("🔇" if self._player.isMuted() else "🔊")
+        muted = not self._audio_output.isMuted()
+        self._audio_output.setMuted(muted)
+        self._btn_mute.setText("🔇" if muted else "🔊")
 
     def _seek(self, value: int) -> None:
         """Перемотка. Если range активен — value 0..1000 = IN..OUT."""

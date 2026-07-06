@@ -401,7 +401,7 @@ class ConvApp(QMainWindow):
         self._btn_convert.setStyleSheet(
             f"background-color: {COLORS['error']}; color: white; "
             f"font-weight: bold; padding: 6px 20px;")
-        self._btn_convert.clicked.disconnect()
+        self._disconnect_convert_btn()
         self._btn_convert.clicked.connect(self._cancel_convert)
 
         self._worker = ConversionWorker(self.converter, requests)
@@ -428,7 +428,7 @@ class ConvApp(QMainWindow):
         self._btn_convert.setStyleSheet(
             f"background-color: {COLORS['error']}; color: white; "
             f"font-weight: bold; padding: 6px 20px;")
-        self._btn_convert.clicked.disconnect()
+        self._disconnect_convert_btn()
 
         from PySide6.QtCore import QObject, Signal, Slot
 
@@ -535,7 +535,7 @@ class ConvApp(QMainWindow):
         self._btn_convert.setStyleSheet(
             f"background-color: {COLORS['accent']}; color: {COLORS['bg']}; "
             f"font-weight: bold; padding: 6px 20px;")
-        self._btn_convert.clicked.disconnect()
+        self._disconnect_convert_btn()
         self._btn_convert.clicked.connect(self._do_convert)
         self._set_busy(False)
         self._update_buttons()
@@ -598,7 +598,7 @@ class ConvApp(QMainWindow):
         self._btn_convert.setStyleSheet(
             f"background-color: {COLORS['accent']}; color: {COLORS['bg']}; "
             f"font-weight: bold; padding: 6px 20px;")
-        self._btn_convert.clicked.disconnect()
+        self._disconnect_convert_btn()
         self._btn_convert.clicked.connect(self._do_convert)
         self._set_busy(False)
         self._update_buttons()
@@ -610,6 +610,13 @@ class ConvApp(QMainWindow):
         self._worker = None
         self._thread = None
         log.info("Конвертация завершена: %d/%d успешно", ok, total)
+
+    def _disconnect_convert_btn(self):
+        """Безопасно отключить clicked (не падает, если ничего не подключено)."""
+        try:
+            self._btn_convert.clicked.disconnect()
+        except (TypeError, RuntimeError):
+            pass
 
     # ── About / Язык / Тема ────────────────────────────────────────────
 
