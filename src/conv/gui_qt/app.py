@@ -126,6 +126,25 @@ class ConvApp(QMainWindow):
         self._btn_clear.setEnabled(False)
         hbox.addWidget(self._btn_clear)
 
+        hbox.addSpacing(12)
+
+        self._btn_select_all = QPushButton("✅ Всё")
+        self._btn_select_all.clicked.connect(
+            lambda: self.file_table.set_all_checked(True))
+        self._btn_select_all.setEnabled(False)
+        hbox.addWidget(self._btn_select_all)
+
+        self._btn_select_none = QPushButton("❌ Снять")
+        self._btn_select_none.clicked.connect(
+            lambda: self.file_table.set_all_checked(False))
+        self._btn_select_none.setEnabled(False)
+        hbox.addWidget(self._btn_select_none)
+
+        self._btn_invert = QPushButton("🔀 Инверт.")
+        self._btn_invert.clicked.connect(self.file_table.invert_selection)
+        self._btn_invert.setEnabled(False)
+        hbox.addWidget(self._btn_invert)
+
         hbox.addStretch()
 
         # Инструменты
@@ -242,6 +261,9 @@ class ConvApp(QMainWindow):
         self._btn_clear.setEnabled(has_files and not busy)
         self._btn_select.setEnabled(not busy)
         self._btn_select_dir.setEnabled(not busy)
+        self._btn_select_all.setEnabled(has_files and not busy)
+        self._btn_select_none.setEnabled(has_files and not busy)
+        self._btn_invert.setEnabled(has_files and not busy)
 
     # ── Выходная папка ─────────────────────────────────────────────────
 
@@ -310,6 +332,12 @@ class ConvApp(QMainWindow):
         if self.file_table.count == 0:
             return
 
+        # Определяем список файлов: выделенные или все
+        paths = self.file_table.selected_paths
+        if not paths:
+            self._status_label.setText("⚠ Нет выделенных файлов для конвертации")
+            return
+
         self.file_table.reset_results()
         self._btn_open.setEnabled(False)
 
@@ -324,7 +352,7 @@ class ConvApp(QMainWindow):
             self._set_busy(True)
 
             results = self.converter.rename_many(
-                self.file_table.paths, ext,
+                paths, ext,
                 on_progress=lambda d, t, r: self._progress.setValue(int(d / t * 100)),
             )
             for r in results:
@@ -356,7 +384,7 @@ class ConvApp(QMainWindow):
                 trim_start=self.preview.get_trim(p)[0],
                 trim_end=self.preview.get_trim(p)[1],
             )
-            for p in self.file_table.paths
+            for p in paths
         ]
 
         self._status_label.setText("⏳ Конвертация...")
@@ -393,6 +421,9 @@ class ConvApp(QMainWindow):
         self._btn_select.setEnabled(not busy)
         self._btn_select_dir.setEnabled(not busy)
         self._btn_clear.setEnabled(not busy and self.file_table.count > 0)
+        self._btn_select_all.setEnabled(not busy and self.file_table.count > 0)
+        self._btn_select_none.setEnabled(not busy and self.file_table.count > 0)
+        self._btn_invert.setEnabled(not busy and self.file_table.count > 0)
 
     def _on_progress(self, done: int, total: int, elapsed: float, eta: float):
         self._progress.setValue(int(done / total * 100))
