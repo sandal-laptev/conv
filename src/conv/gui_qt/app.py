@@ -93,6 +93,12 @@ class ConvApp(QMainWindow):
 
         self.file_table = FileTableWidget()
         self.file_table.file_clicked.connect(self._on_file_click)
+        # Привязка кнопок выделения (созданы в _build_toolbar)
+        self._btn_select_all.clicked.connect(
+            lambda: self.file_table.set_all_checked(True))
+        self._btn_select_none.clicked.connect(
+            lambda: self.file_table.set_all_checked(False))
+        self._btn_invert.clicked.connect(self.file_table.invert_selection)
         content.addWidget(self.file_table)
 
         self.preview = PreviewPanel()
@@ -129,19 +135,14 @@ class ConvApp(QMainWindow):
         hbox.addSpacing(12)
 
         self._btn_select_all = QPushButton("✅ Всё")
-        self._btn_select_all.clicked.connect(
-            lambda: self.file_table.set_all_checked(True))
         self._btn_select_all.setEnabled(False)
         hbox.addWidget(self._btn_select_all)
 
         self._btn_select_none = QPushButton("❌ Снять")
-        self._btn_select_none.clicked.connect(
-            lambda: self.file_table.set_all_checked(False))
         self._btn_select_none.setEnabled(False)
         hbox.addWidget(self._btn_select_none)
 
         self._btn_invert = QPushButton("🔀 Инверт.")
-        self._btn_invert.clicked.connect(self.file_table.invert_selection)
         self._btn_invert.setEnabled(False)
         hbox.addWidget(self._btn_invert)
 
