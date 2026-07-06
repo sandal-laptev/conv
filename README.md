@@ -1,6 +1,6 @@
-# 🖧 conv — Иохим Кузьмич Media Converter
+# 🖧 MO Kolomyagi Media Converter
 
-Кроссплатформенный медиа-конвертер с CLI и GUI.
+Кроссплатформенный медиа-конвертер с CLI и Qt6 GUI.
 
 ```
 ██╗ ██████╗ ██╗  ██╗██╗███╗   ███╗    ██╗  ██╗ ██████╗ ███╗   ██╗██╗   ██╗
@@ -12,7 +12,7 @@
 ```
 
 Конвертирует изображения, SVG, видео и аудио в популярные форматы.
-Пакетная и рекурсивная обработка. Многопоточность. GUI (Flet) и CLI.
+Пакетная и рекурсивная обработка. Многопоточность. **Qt6 GUI** и **CLI**.
 
 ---
 
@@ -26,8 +26,19 @@
 - Рекурсивный обход папок
 - Многопоточная конвертация
 - Настройка качества и максимального размера
+- **Пресеты качества**: Макс., Для веба, Быстрый
 - Dry-run для предпросмотра
-- **GUI** с drag'n'drop, прогрессом, тёмной темой
+- **🚀 Qt6 GUI**:
+  - Drag'n'drop файлов и папок из Проводника
+  - Тёмная / светлая / системная тема
+  - 🎬 **Видеоплеер** с обрезкой IN/OUT (без перекодирования)
+  - 📊 **Таймлайн** с waveform, range-drag, ручной ввод времени
+  - 🖼 **Предпросмотр изображений** (PIL → QPixmap)
+  - 🌐 **RU / EN** переключение языка
+  - ☑️ Чекбоксы, контекстное меню, горячие клавиши
+  - 📁 **Сортировка по типу** (images / video / audio)
+  - 💾 Память настроек между запусками (ConfigManager)
+  - ℹ About-диалог с лицензиями и благодарностями
 
 ---
 
@@ -42,7 +53,7 @@ sudo apt install -y ffmpeg librsvg2-bin python3-pip
 # Установка пакета
 git clone git@github.com:sandal-laptev/conv.git
 cd conv
-pip install -e .[gui]
+pip install -e .[gui,heif]
 ```
 
 ### Windows
@@ -55,7 +66,7 @@ pip install -e .[gui]
 # Установка пакета
 git clone git@github.com:sandal-laptev/conv.git
 cd conv
-pip install -e .[gui]
+pip install -e .[gui,heif]
 ```
 
 #### ffmpeg + ffprobe (для видео/аудио)
@@ -86,15 +97,25 @@ copy ffmpeg-tmp\ffmpeg-*-essentials-build\bin\ffprobe.exe .
 ### 🖥️ GUI
 
 ```bash
-# Просто:
+# Qt6 GUI (рекомендуется)
 conv-gui
 
-# Или если не сработало:
-python -c "from conv.gui import main_flet; main_flet()"
-
-# Или напрямую (из папки проекта):
-python src/conv/gui.py
+# Или напрямую:
+python -m conv.gui
 ```
+
+#### Горячие клавиши (GUI)
+
+| Клавиша | Действие |
+|---------|----------|
+| `Ctrl+A` / `Ctrl+Shift+A` | ✅ Всё / ❌ Снять |
+| `Ctrl+I` | 🔀 Инвертировать |
+| `Delete` | 🗑 Удалить файл |
+| `Enter` | ⚡ Конвертировать |
+| `Ctrl+O` / `Ctrl+Shift+O` | 📂 Файлы / 📁 Папка |
+| `Ctrl+.` | 📂 Открыть папку |
+| `Space` | ▶⏸ Play/Pause видео |
+| `Esc` | ⏹ Отмена / 🗑 Очистить |
 
 ### ⌨️ CLI
 
@@ -108,8 +129,8 @@ conv *.mp4
 # Рекурсивно все JPG → WebP
 conv -r -f webp -q 90 ~/photos/
 
-# Выходная папка
-conv -o converted audio.flac
+# Выходная папка + сортировка по типу
+conv -o converted --sort-by-type audio.flac
 
 # Preview без конвертации
 conv --dry-run *.avi
@@ -118,7 +139,10 @@ conv --dry-run *.avi
 ### Справка CLI
 
 ```
-conv [-h] [-o OUTPUT] [-f FORMAT] [-q N] [-s PX] [-r] [-j N] [--dry-run] [--version] [input ...]
+conv [-h] [-o OUTPUT] [-f FORMAT] [-q N] [-s PX] [-r] [-j N]
+     [--preset PRESET] [--sort-by-type] [--rename-to EXT]
+     [--trim-start S] [--trim-end S] [--info] [--dry-run]
+     [--version] [input ...]
 ```
 
 | Флаг | Описание |
@@ -130,6 +154,11 @@ conv [-h] [-o OUTPUT] [-f FORMAT] [-q N] [-s PX] [-r] [-j N] [--dry-run] [--vers
 | `-s, --size PX` | Макс. ширина/высота для картинок |
 | `-r, --recursive` | Рекурсивно |
 | `-j, --jobs N` | Параллельных задач |
+| `--preset` | Пресет качества (max / web / fast) |
+| `--sort-by-type` | Сортировать по типу (video/audio/image) |
+| `--rename-to` | Переименовать (без перекодирования) |
+| `--trim-start/--trim-end` | Обрезка видео/аудио (сек) |
+| `--info` | Медиа-информация |
 | `--dry-run` | Только показать |
 | `--version` | Версия |
 
@@ -150,17 +179,21 @@ conv avatar.svg
 
 # На 8 потоках
 conv -j 8 -f mp4 ~/videos/
+
+# Обрезка: первые 30 секунд
+conv --trim-end 30 clip.mp4
+
+# С сортировкой по типу
+conv -o converted --sort-by-type *.mp4 *.jpg *.flac
 ```
 
 ---
 
-## Сборка в один файл
-
-### Windows
+## Сборка в один .exe (Windows)
 
 ```powershell
 # 1. Установить Python 3.10+ и зависимости
-pip install -e .[gui] pyinstaller
+pip install -e .[gui,heif] pyinstaller
 
 # 2. Скачать ffmpeg.exe (опционально, для видео/аудио)
 #    https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.7z
@@ -168,21 +201,15 @@ pip install -e .[gui] pyinstaller
 
 # 3. Запустить сборку
 scripts\build-win.bat
-
-# Или вручную:
-pyinstaller --onefile --windowed --name conv --add-data "src/conv;conv" src/conv/__init__.py
 ```
 
 Готовые `.exe` появятся в папке `dist/`:
-- `conv.exe` — GUI версия
+- `MO-Kolomyagi-Media-Converter.exe` — Qt6 GUI (∼150–350 MB)
 - `conv-cli.exe` — консольная версия
 
-### Linux / macOS
-
-```bash
-pip install -e .[gui] pyinstaller
-pyinstaller --onefile --windowed --name conv --add-data "src/conv:conv" src/conv/__init__.py
-```
+> **Примечание:** Большой размер .exe обусловлен встроенным Qt6
+> (PySide6 + Qt Multimedia). Это плата за видеоплеер, таймлайн
+> и нативную кроссплатформенность.
 
 ---
 
@@ -192,10 +219,10 @@ pyinstaller --onefile --windowed --name conv --add-data "src/conv:conv" src/conv
 
 Кратко:
 - **Фаза 0** — Фундамент ✅
-- **Фаза 1** — GUI Minimal ✅
-- **Фаза 2** — Кирпичики (CI/CD, сборка бинарников) 🧱
-- **Фаза 3** — Продвинутые возможности 🚀
-- **Фаза 4** — Экосистема 🌐
+- **Фаза 1** — CLI + ядро ✅
+- **Фаза 2** — CI/CD, сборка бинарников ✅
+- **Фаза 3** — Qt6 GUI (видеоплеер, таймлайн, i18n, темы) 🚀
+- **В плане** — Автоопределение формата
 
 ---
 
@@ -205,5 +232,11 @@ GNU General Public License v3.0 или выше.
 
 ## Авторы
 
-- **Иохим Кузьмич** — цифровой дух и главный разработчик
-- **товарищ Админ** — идеи, тестирование, вдохновение 🖧
+- **Иохим Кузьмич** — цифровой дух, архитектор, главный разработчик 🖧
+- **товарищ Админ** — идеи, тестирование, вдохновение, рабочее место 🏢
+
+Сделано с ❤ в Коломягах, Санкт-Петербург.
+
+---
+
+*Powered by OpenClaw · DeepSeek*
