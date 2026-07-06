@@ -6,7 +6,16 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QUrl, Qt, Signal
-from PySide6.QtGui import QAction, QColor, QDragEnterEvent, QDropEvent, QPainter, QPen, QStandardItem, QStandardItemModel
+from PySide6.QtGui import (
+    QAction,
+    QColor,
+    QDragEnterEvent,
+    QDropEvent,
+    QPainter,
+    QPen,
+    QStandardItem,
+    QStandardItemModel,
+)
 from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
@@ -35,7 +44,6 @@ def _file_size(path: Path) -> int:
         return 0
 
 
-# Колонки
 COL_CHECK = 0
 COL_NAME = 1
 COL_SIZE = 2
@@ -47,13 +55,7 @@ HEADERS = ["", "Файл", "Размер", "→ формат", "Статус", "
 
 
 class FileTableWidget(QWidget):
-    """Таблица файлов с чекбоксами и сортировкой.
-
-    Сигналы:
-      file_clicked(idx)   — клик по имени файла
-      selection_changed() — любой чекбокс изменился
-      remove_requested(paths) — удалить файлы из списка
-    """
+    """Таблица файлов с чекбоксами, сортировкой, дропом и контекстным меню."""
 
     file_clicked = Signal(int)
     selection_changed = Signal()
@@ -66,6 +68,7 @@ class FileTableWidget(QWidget):
         self._results: dict[Path, ConvertResult] = {}
         self._target_format: str = ""
         self._drag_over = False
+        self._check_states: dict[Path, bool] = {}  # true = checked
         self._build_ui()
         self.setAcceptDrops(True)
 
@@ -86,9 +89,9 @@ class FileTableWidget(QWidget):
         self._tree.setEditTriggers(QTreeView.NoEditTriggers)
         self._tree.setIndentation(0)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
-        self._tree.setVisible(False)  # скрыт пока нет файлов
         self._tree.customContextMenuRequested.connect(self._show_context_menu)
         self._tree.clicked.connect(self._on_click)
+        self._tree.setVisible(False)
 
         header = self._tree.header()
         header.setStretchLastSection(True)
@@ -100,33 +103,29 @@ class FileTableWidget(QWidget):
         header.setSectionResizeMode(COL_RESULT, QHeaderView.Stretch)
         self._tree.setColumnWidth(COL_CHECK, 30)
 
-        # QSS: ховер + зелёные чекбоксы + дроп-зона
-        self._tree.setStyleSheet(f"""
-            QTreeView::item:hover {{ background-color: rgba(0, 210, 255, 30); }}
-            QTreeView::indicator {{
-                width: 14px;
-                height: 14px;
+        self._tree.setStyleSheet("""
+            QTreeView::item:hover { background-color: rgba(0, 210, 255, 30); }
+            QTreeView::indicator {
+                width: 14px; height: 14px;
                 border: 1px solid #2a2a4e;
                 border-radius: 3px;
                 background-color: #16213e;
-            }}
-            QTreeView::indicator:checked {{
+            }
+            QTreeView::indicator:checked {
                 background-color: #00e676;
                 border: 1px solid #00e676;
-            }}
-            QTreeView::indicator:hover {{
-                border-color: #00d2ff;
-            }}
+            }
+            QTreeView::indicator:hover { border-color: #00d2ff; }
         """)
 
-        # Метка-подсказка для дропа (показывается когда таблица пуста)
+        # Подсказка при пустом списке
         self._drop_hint = QLabel()
         self._drop_hint.setAlignment(Qt.AlignCenter)
         self._drop_hint.setText(
             "📂  Перетащите файлы сюда\n\n"
             "или нажмите «Выбрать файлы» сверху"
         )
-        self._drop_hint.setStyleSheet(f"""
+        self._drop_hint.setStyleSheet("""
             color: #606070;
             font-size: 15px;
             padding: 40px;
@@ -134,9 +133,9 @@ class FileTableWidget(QWidget):
             border-radius: 12px;
             background-color: rgba(22, 33, 62, 80);
         """)
-        self._drop_hint.setVisible(True)  # показать при старте (пока нет файлов)
+        self._drop_hint.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self._drop_hint.setVisible(True)
         layout.addWidget(self._drop_hint, stretch=1)
-
         layout.addWidget(self._tree, stretch=1)
 
     # ── Свойства ───────────────────────────────────────────────────────
@@ -154,6 +153,14 @@ class FileTableWidget(QWidget):
         return self._results
 
     @property
+    def current_path(self) -> Path | None:
+        """Файл под синим выделением (фокус-строка)."""
+        idx = self._tree.currentIndex()
+        if idx.isValid() and 0 <= idx.row() < len(self._paths):
+            return self._paths[idx.row()]
+        return None
+
+    @property
     def selected_paths(self) -> list[Path]:
         """Файлы с отмеченными чекбоксами."""
         return [p for i, p in enumerate(self._paths)
@@ -168,10 +175,21 @@ class FileTableWidget(QWidget):
         ) if self._model.rowCount() > 0 else False
 
     def set_all_checked(self, checked: bool) -> None:
-        """Отметить/снять все чекбоксы."""
         state = Qt.Checked if checked else Qt.Unchecked
-        for i in range(self._model.rowCount()):
-            self._model.item(i, COL_CHECK).setCheckState(state)
+        for i, p in enumerate(self._paths):
+            item = self._model.item(i, COL_CHECK)
+            if item:
+                item.setCheckState(state)
+                self._check_states[p] = checked
+        self.selection_changed.emit()
+
+    def invert_selection(self) -> None:
+        for i, p in enumerate(self._paths):
+            item = self._model.item(i, COL_CHECK)
+            if item:
+                new = item.checkState() != Qt.Checked
+                item.setCheckState(Qt.Checked if new else Qt.Unchecked)
+                self._check_states[p] = new
         self.selection_changed.emit()
 
     # ── Управление файлами ─────────────────────────────────────────────
@@ -183,6 +201,7 @@ class FileTableWidget(QWidget):
     def set_files(self, paths: list[Path]) -> None:
         self._paths = list(paths)
         self._results.clear()
+        self._check_states.clear()
         self._rebuild()
 
     def add_files(self, paths: list[Path]) -> None:
@@ -191,6 +210,8 @@ class FileTableWidget(QWidget):
             if p not in existing:
                 self._paths.append(p)
                 existing.add(p)
+                # новые файлы — отмечены
+                self._check_states[p] = True
         self._rebuild()
 
     def remove_files(self, paths: list[Path]) -> None:
@@ -198,11 +219,15 @@ class FileTableWidget(QWidget):
         self._paths = [p for p in self._paths if p not in removals]
         for p in removals:
             self._results.pop(p, None)
+            self._check_states.pop(p, None)
         self._rebuild()
+        if removals:
+            self.remove_requested.emit(list(removals))
 
     def clear(self) -> None:
         self._paths.clear()
         self._results.clear()
+        self._check_states.clear()
         self._rebuild()
 
     def set_result(self, path: Path, result: ConvertResult) -> None:
@@ -216,9 +241,7 @@ class FileTableWidget(QWidget):
         self._results.clear()
         self._rebuild()
 
-    # ── Построение ─────────────────────────────────────────────────────
-
-    # ── Drag-n-Drop ─────────────────────────────────────────────────
+    # ── Drag-n-Drop ─────────────────────────────────────────────────────
 
     def _show_drag_border(self, show: bool):
         self._drag_over = show
@@ -267,9 +290,10 @@ class FileTableWidget(QWidget):
 
     def _rebuild(self):
         self._model.removeRows(0, self._model.rowCount())
-        self._drop_hint.setVisible(len(self._paths) == 0)
-        self._tree.setVisible(len(self._paths) > 0)
-        if self._paths:
+        has_files = len(self._paths) > 0
+        self._drop_hint.setVisible(not has_files)
+        self._tree.setVisible(has_files)
+        if has_files:
             for p in self._paths:
                 self._append_row(p)
 
@@ -294,10 +318,10 @@ class FileTableWidget(QWidget):
 
         if res and res.ok:
             status = "✅"
-            if res.src_size:
-                info = f"{fmt_size(res.dst_size)} ({res.dst_size / res.src_size * 100:.0f}%) — {res.fmt_took()}"
-            else:
-                info = "готово"
+            info = (
+                f"{fmt_size(res.dst_size)} ({res.dst_size / res.src_size * 100:.0f}%) — {res.fmt_took()}"
+                if res.src_size else "готово"
+            )
         elif res and not res.ok:
             status = "❌"
             info = res.error[:50]
@@ -305,9 +329,12 @@ class FileTableWidget(QWidget):
             status = "⏳"
             info = ""
 
+        # Восстанавливаем состояние чекбокса
+        checked = self._check_states.get(path, True)
+
         check_item = QStandardItem()
         check_item.setCheckable(True)
-        check_item.setCheckState(Qt.Checked)  # по умолчанию отмечен
+        check_item.setCheckState(Qt.Checked if checked else Qt.Unchecked)
         check_item.setEditable(False)
 
         items = [
@@ -335,6 +362,12 @@ class FileTableWidget(QWidget):
     def _on_click(self, index):
         col = index.column()
         if col == COL_CHECK:
+            # Сохраняем состояние чекбокса
+            row = index.row()
+            if 0 <= row < len(self._paths):
+                item = self._model.item(row, COL_CHECK)
+                if item:
+                    self._check_states[self._paths[row]] = (item.checkState() == Qt.Checked)
             self.selection_changed.emit()
         else:
             row = index.row()
@@ -355,12 +388,10 @@ class FileTableWidget(QWidget):
         path = self._paths[row]
         menu = QMenu(self._tree)
 
-        # Выделение
-        act_toggle = QAction("✅ Выделить / Снять" if self._is_checked(row) else
-                             "✅ Выделить", self._tree)
+        act_toggle = QAction(
+            "✅ Снять" if self._is_checked(row) else "✅ Выделить", self._tree)
         act_toggle.triggered.connect(lambda: self._toggle_row(row))
         menu.addAction(act_toggle)
-
         menu.addSeparator()
 
         act_all = QAction("✅ Выделить все", self._tree)
@@ -374,33 +405,29 @@ class FileTableWidget(QWidget):
         act_inv = QAction("🔀 Инвертировать", self._tree)
         act_inv.triggered.connect(self.invert_selection)
         menu.addAction(act_inv)
-
         menu.addSeparator()
 
-        # Удаление
+        # Удаление по правому клику — только этот файл
         act_remove_this = QAction("🗑 Удалить файл", self._tree)
-        act_remove_this.triggered.connect(lambda: self.remove_files([path]))
+        act_remove_this.triggered.connect(lambda: self._remove_file(path))
         menu.addAction(act_remove_this)
 
-        if self.selected_paths:
-            act_remove_sel = QAction(
-                f"🗑 Удалить выделенные ({len(self.selected_paths)})", self._tree)
-            act_remove_sel.triggered.connect(
-                lambda: self.remove_files(self.selected_paths))
-            menu.addAction(act_remove_sel)
+        act_remove_sel = QAction(
+            f"🗑 Удалить выделенные чекбоксом ({len(self.selected_paths)})", self._tree)
+        act_remove_sel.triggered.connect(
+            lambda: self.remove_files(self.selected_paths))
+        menu.addAction(act_remove_sel)
 
         menu.addSeparator()
 
-        # Формат для выделенных
         from conv.core import OUTPUT_FORMATS
         fmt_menu = menu.addMenu("🎞 Задать формат выделенным")
         act_auto = QAction("Авто", self._tree)
-        act_auto.triggered.connect(
-            lambda: self._set_format_for_selected(""))
+        act_auto.triggered.connect(lambda: None)
         fmt_menu.addAction(act_auto)
         for key, val in OUTPUT_FORMATS.items():
             act = QAction(f".{key} — {val['desc']}", self._tree)
-            act.triggered.connect(lambda k=key: self._set_format_for_selected(k))
+            act.triggered.connect(lambda k=key: None)
             fmt_menu.addAction(act)
 
         menu.exec(self._tree.viewport().mapToGlobal(pos))
@@ -414,18 +441,10 @@ class FileTableWidget(QWidget):
         if item:
             new_state = Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked
             item.setCheckState(new_state)
+            if 0 <= row < len(self._paths):
+                self._check_states[self._paths[row]] = (new_state == Qt.Checked)
             self.selection_changed.emit()
 
-    def invert_selection(self) -> None:
-        for i in range(self._model.rowCount()):
-            item = self._model.item(i, COL_CHECK)
-            if item:
-                item.setCheckState(
-                    Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked)
-        self.selection_changed.emit()
-
-    def _set_format_for_selected(self, fmt: str) -> None:
-        """Сигнал для внешней обработки (пока просто храним)."""
-        # Пока не реализовано — в будущем можно задавать формат
-        # для выделенных файлов через сигнал
-        pass
+    def _remove_file(self, path: Path) -> None:
+        """Удалить один файл по прямому пути (из контекстного меню)."""
+        self.remove_files([path])

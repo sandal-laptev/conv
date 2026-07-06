@@ -95,6 +95,7 @@ class ConvApp(QMainWindow):
         self.file_table = FileTableWidget()
         self.file_table.file_clicked.connect(self._on_file_click)
         self.file_table.files_dropped.connect(lambda _: self._update_buttons())
+        self.file_table.remove_requested.connect(self._on_files_removed)
         # Привязка кнопок выделения (созданы в _build_toolbar)
         self._btn_select_all.clicked.connect(
             lambda: self.file_table.set_all_checked(True))
@@ -553,12 +554,17 @@ class ConvApp(QMainWindow):
         log.info("Горячие клавиши: Ctrl+A/Shift+A/I/Delete/Enter/Ctrl+O/Space/Esc")
 
     def _delete_selected(self):
-        """Удалить выделенные файлы (Delete)."""
-        sel = self.file_table.selected_paths
-        if sel:
-            self.file_table.remove_files(sel)
+        """Delete: удалить файл под синим выделением (не чекбокс)."""
+        path = self.file_table.current_path
+        if path is not None:
+            self.file_table.remove_files([path])
             self._update_buttons()
-            self.preview.clear()
+            # Если удалили файл из превью — очистить превью
+            if self.preview.current_path == path:
+                self.preview.clear()
+            # Показать превью следующего файла, если есть
+            if self.file_table.count > 0:
+                self._show_preview(0)
 
     def _cancel_or_clear(self):
         """Esc: отменить конвертацию или очистить список."""
@@ -571,6 +577,16 @@ class ConvApp(QMainWindow):
         """Space: play/pause видео."""
         if hasattr(self, "preview"):
             self.preview.toggle_video_playback()
+
+    def _on_files_removed(self, paths: list[Path]) -> None:
+        """Файлы удалены из таблицы — обновить кнопки/превью."""
+        self._update_buttons()
+        # Если среди удалённых был текущий превью — очистить
+        if self.preview.current_path in paths:
+            self.preview.clear()
+        # Показать превью первого файла если есть
+        if self.file_table.count > 0:
+            self._show_preview(0)
 
     # ── Конфиг ─────────────────────────────────────────────────────────
 
