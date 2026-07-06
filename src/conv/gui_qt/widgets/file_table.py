@@ -5,10 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction, QStandardItem, QStandardItemModel
+from PySide6.QtCore import QUrl, Qt, Signal
+from PySide6.QtGui import QAction, QDragEnterEvent, QDropEvent, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QHeaderView,
+    QLabel,
     QMenu,
     QTreeView,
     QVBoxLayout,
@@ -45,6 +46,55 @@ COL_RESULT = 5
 HEADERS = ["", "Файл", "Размер", "→ формат", "Статус", "Результат"]
 
 
+class _DropTreeView(QTreeView):
+    """QTreeView, принимающий дроп файлов из OS."""
+
+    files_dropped = Signal(object)  # list[Path]
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self._drag_over = False
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            self._drag_over = True
+            self.parent()._update_drag_overlay(True)  # type: ignore
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        self._drag_over = False
+        self.parent()._update_drag_overlay(False)  # type: ignore
+
+    def dropEvent(self, event: QDropEvent):
+        self._drag_over = False
+        self.parent()._update_drag_overlay(False)  # type: ignore
+
+        if not event.mimeData().hasUrls():
+            return
+
+        paths: list[Path] = []
+        for url in event.mimeData().urls():
+            if url.isLocalFile():
+                p = Path(url.toLocalFile())
+                if p.exists():
+                    paths.append(p)
+
+        if not paths:
+            return
+
+        event.acceptProposedAction()
+
+        from conv.core import Converter as _Conv
+        collected = _Conv().collect(paths, recursive=True)
+        if collected:
+            self.files_dropped.emit(collected)
+
+
 class FileTableWidget(QWidget):
     """Таблица файлов с чекбоксами и сортировкой.
 
@@ -57,13 +107,16 @@ class FileTableWidget(QWidget):
     file_clicked = Signal(int)
     selection_changed = Signal()
     remove_requested = Signal(object)  # list[Path]
+    files_dropped = Signal(object)     # list[Path]
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._paths: list[Path] = []
         self._results: dict[Path, ConvertResult] = {}
         self._target_format: str = ""
+        self._drag_over = False
         self._build_ui()
+        self._setup_drag_drop()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -72,8 +125,10 @@ class FileTableWidget(QWidget):
         self._model = QStandardItemModel(0, len(HEADERS))
         self._model.setHorizontalHeaderLabels(HEADERS)
 
-        self._tree = QTreeView()
+        self._tree = _DropTreeView()
         self._tree.setModel(self._model)
+        self._tree.files_dropped.connect(self.files_dropped.emit)
+        self._tree.files_dropped.connect(self.add_files)
         self._tree.setRootIsDecorated(False)
         self._tree.setAlternatingRowColors(True)
         self._tree.setSortingEnabled(True)
@@ -95,24 +150,33 @@ class FileTableWidget(QWidget):
         header.setSectionResizeMode(COL_RESULT, QHeaderView.Stretch)
         self._tree.setColumnWidth(COL_CHECK, 30)
 
-        # QSS: ховер + зелёные чекбоксы
-        self._tree.setStyleSheet("""
-            QTreeView::item:hover { background-color: rgba(0, 210, 255, 30); }
-            QTreeView::indicator {
+        # QSS: ховер + зелёные чекбоксы + дроп-зона
+        self._tree.setStyleSheet(f"""
+            QTreeView::item:hover {{ background-color: rgba(0, 210, 255, 30); }}
+            QTreeView::indicator {{
                 width: 14px;
                 height: 14px;
                 border: 1px solid #2a2a4e;
                 border-radius: 3px;
                 background-color: #16213e;
-            }
-            QTreeView::indicator:checked {
+            }}
+            QTreeView::indicator:checked {{
                 background-color: #00e676;
                 border: 1px solid #00e676;
-            }
-            QTreeView::indicator:hover {
+            }}
+            QTreeView::indicator:hover {{
                 border-color: #00d2ff;
-            }
+            }}
         """)
+
+        # Метка-подсказка для дропа (показывается когда таблица пуста)
+        self._drop_hint = QLabel(
+            "📂 Перетащите файлы сюда\n(или нажмите кнопку «Выбрать файлы»)"
+        )
+        self._drop_hint.setAlignment(Qt.AlignCenter)
+        self._drop_hint.setStyleSheet(f"color: #606070; font-size: 14px; padding: 40px;")
+        self._drop_hint.setVisible(False)
+        layout.addWidget(self._drop_hint)
 
         layout.addWidget(self._tree)
 
@@ -195,10 +259,39 @@ class FileTableWidget(QWidget):
 
     # ── Построение ─────────────────────────────────────────────────────
 
+    # ── Drag-n-Drop ─────────────────────────────────────────────────
+
+    def _setup_drag_drop(self):
+        self._drag_overlay = QLabel(self)
+        self._drag_overlay.setAlignment(Qt.AlignCenter)
+        self._drag_overlay.setStyleSheet(f"""
+            background-color: rgba(0, 210, 255, 40);
+            border: 3px dashed #00d2ff;
+            border-radius: 8px;
+            color: #00d2ff;
+            font-size: 16px;
+            font-weight: bold;
+        """)
+        self._drag_overlay.setText("📂 Отпустите файлы для добавления")
+        self._drag_overlay.setVisible(False)
+        self._drag_overlay.raise_()
+
+    def _update_drag_overlay(self, visible: bool):
+        if not hasattr(self, "_drag_overlay"):
+            return
+        self._drag_overlay.setVisible(visible)
+        if visible:
+            self._drag_overlay.setGeometry(self.rect().adjusted(4, 4, -4, -4))
+
+    # ── Построение ─────────────────────────────────────────────────────
+
     def _rebuild(self):
         self._model.removeRows(0, self._model.rowCount())
-        for p in self._paths:
-            self._append_row(p)
+        self._drop_hint.setVisible(len(self._paths) == 0)
+        self._tree.setVisible(len(self._paths) > 0)
+        if self._paths:
+            for p in self._paths:
+                self._append_row(p)
 
     def _append_row(self, path: Path):
         row = self._model.rowCount()

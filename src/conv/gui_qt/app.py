@@ -93,6 +93,7 @@ class ConvApp(QMainWindow):
 
         self.file_table = FileTableWidget()
         self.file_table.file_clicked.connect(self._on_file_click)
+        self.file_table.files_dropped.connect(lambda _: self._update_buttons())
         # Привязка кнопок выделения (созданы в _build_toolbar)
         self._btn_select_all.clicked.connect(
             lambda: self.file_table.set_all_checked(True))
