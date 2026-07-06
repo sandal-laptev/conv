@@ -424,6 +424,20 @@ class TimelineWidget(QFrame):
             return (start, end if end < self._duration else 0.0)
         return (0.0, 0.0)
 
+    def set_trim_silent(self, start: float, end: float) -> None:
+        """Установить trim без эмиссии сигнала (для восстановления из памяти)."""
+        self._bar.trim_changed.disconnect()
+        self._spin_in.blockSignals(True)
+        self._spin_out.blockSignals(True)
+        self._spin_in.setValue(start)
+        self._spin_out.setValue(end)
+        self._spin_in.setMaximum(end - 0.1)
+        self._spin_out.setMinimum(start + 0.1)
+        self._spin_in.blockSignals(False)
+        self._spin_out.blockSignals(False)
+        self._bar.set_trim(start, end)
+        self._bar.trim_changed.connect(self._on_bar_changed)
+
     # ── Обработчики ────────────────────────────────────────────────────
 
     def _on_bar_changed(self, start: float, end: float):
