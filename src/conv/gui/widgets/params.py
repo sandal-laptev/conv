@@ -60,6 +60,14 @@ class ParamsWidget(QWidget):
     def rename_only(self) -> bool:
         return self._rename_check.isChecked()
 
+    @property
+    def audio_mode(self) -> str:
+        return self._audio_mode_combo.currentData()
+
+    @property
+    def audio_split_format(self) -> str:
+        return self._audio_fmt_combo.currentData()
+
     # ── Построение ─────────────────────────────────────────────────────
 
     def _build_ui(self):
@@ -135,6 +143,39 @@ class ParamsWidget(QWidget):
         row2.addStretch()
         layout.addLayout(row2)
 
+        # Третий ряд: режим аудио
+        row3 = QHBoxLayout()
+        row3.setSpacing(8)
+
+        row3.addWidget(QLabel("Аудиодорожка:"))
+        self._audio_mode_combo = QComboBox()
+        self._audio_mode_combo.addItem("🎵 Сохранить", "keep")
+        self._audio_mode_combo.addItem("🔇 Удалить", "remove")
+        self._audio_mode_combo.addItem("✂ Разделить (video + audio)", "split")
+        self._audio_mode_combo.currentIndexChanged.connect(self._on_audio_mode_changed)
+        row3.addWidget(self._audio_mode_combo)
+
+        row3.addSpacing(16)
+
+        self._audio_fmt_label = QLabel("Формат аудио:")
+        self._audio_fmt_label.setVisible(False)
+        row3.addWidget(self._audio_fmt_label)
+
+        self._audio_fmt_combo = QComboBox()
+        self._audio_fmt_combo.setVisible(False)
+        for k, v in OUTPUT_FORMATS.items():
+            if v['mime'] == 'audio':
+                self._audio_fmt_combo.addItem(f"{k} — {v['desc']}", k)
+        # mp3 по умолчанию
+        for i in range(self._audio_fmt_combo.count()):
+            if self._audio_fmt_combo.itemData(i) == 'mp3':
+                self._audio_fmt_combo.setCurrentIndex(i)
+                break
+        row3.addWidget(self._audio_fmt_combo)
+
+        row3.addStretch()
+        layout.addLayout(row3)
+
     # ── Внутреннее ─────────────────────────────────────────────────────
 
     def _on_preset_change(self, choice: str):
@@ -143,6 +184,11 @@ class ParamsWidget(QWidget):
                 self._quality_slider.setValue(p.quality)
                 self._size_entry.setText(str(p.max_size))
                 return
+
+    def _on_audio_mode_changed(self):
+        is_split = self._audio_mode_combo.currentData() == 'split'
+        self._audio_fmt_label.setVisible(is_split)
+        self._audio_fmt_combo.setVisible(is_split)
 
     def _unset_preset(self, *_):
         """Сбросить пресет при ручном изменении качества/размера."""

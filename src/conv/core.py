@@ -153,6 +153,8 @@ class ConvertRequest:
     trim_start: float = 0.0           # с (0 = с начала)
     trim_end: float = 0.0             # с (0 = до конца)
     sort_by_type: bool = False       # сортировать по типу (image/, video/, audio/)
+    audio_mode: str = 'keep'         # keep | remove | split
+    audio_format: str = 'mp3'        # формат аудио при split
 
     @property
     def rel_dir(self) -> Path:
@@ -561,7 +563,7 @@ class Converter:
                 log.debug("Конвертер: ffmpeg видео")
                 err = self._convert_video(
                     req.input_path, out_path, fmt, req.quality,
-                    req.trim_start, req.trim_end,
+                    req.trim_start, req.trim_end, req.audio_mode,
                 )
             elif mime == 'audio':
                 log.debug("Конвертер: ffmpeg аудио")
@@ -622,6 +624,62 @@ class Converter:
         return results
 
     # ── Пакетное переименование ──────────────────────────────────────────────
+
+    # ── Аудио-режимы ────────────────────────────────────────────────
+
+    def split_audio_video(
+        self, src: Path, dst_dir: Path, video_ext: str,
+        audio_format: str = 'mp3', audio_quality: int = 80,
+        trim_start: float = 0.0, trim_end: float = 0.0,
+        sort_by_type: bool = False,
+    ) -> tuple[Optional[Path], Optional[Path], Optional[str]]:
+        """Разделить видео и аудио в два файла рядом.
+
+        Возвращает (video_path, audio_path, error).
+        Видео — без аудио, аудио — выбранного формата.
+        """
+        stem = src.stem
+        ext = VIDEO_INPUT & {'.' + video_ext} if video_ext else {'.mp4'}
+        vext = '.' + video_ext if video_ext else '.mp4'
+        aext = OUTPUT_FORMATS.get(audio_format, {}).get('ext', '.mp3')
+
+        # Пути
+        if sort_by_type:
+            vbase = dst_dir / 'video'
+            abase = dst_dir / 'audio'
+        else:
+            vbase = dst_dir
+            abase = dst_dir
+        vbase.mkdir(parents=True, exist_ok=True)
+        abase.mkdir(parents=True, exist_ok=True)
+
+        vpath = vbase / f"{stem}{vext}"
+        apath = abase / f"{stem}{aext}"
+
+        log.info("Split: %s → %s + %s", src.name, vpath.name, apath.name)
+
+        # Видео без аудио
+        err = self._convert_video(src, vpath, video_ext, 85,
+                                  trim_start, trim_end, audio_mode='split')
+        if err:
+            return (None, None, f"Video: {err}")
+
+        # Аудио отдельно
+        err = self._convert_audio(src, apath, audio_format, audio_quality,
+                                  trim_start, trim_end)
+        if err:
+            return (vpath, None, f"Audio: {err}")
+
+        return (vpath, apath, None)
+
+    def extract_audio(
+        self, src: Path, dst: Path, audio_format: str = 'mp3',
+        quality: int = 80,
+        trim_start: float = 0.0, trim_end: float = 0.0,
+    ) -> Optional[str]:
+        """Извлечь аудио из видео в отдельный файл."""
+        return self._convert_audio(src, dst, audio_format, quality,
+                                   trim_start, trim_end)
 
     def rename_many(
         self, paths: list[Path], new_ext: str,
@@ -838,6 +896,7 @@ class Converter:
     def _convert_video(
         self, src: Path, dst: Path, fmt_out: str, quality: int,
         trim_start: float = 0.0, trim_end: float = 0.0,
+        audio_mode: str = 'keep',
     ) -> Optional[str]:
         """Видео → ffmpeg."""
         crf = max(18, min(28, 28 - int((quality - 50) / 50 * 10)))
@@ -864,10 +923,16 @@ class Converter:
         cmd.extend(['-i', str(src)])
         if trim_end > 0:
             cmd.extend(['-to', self._fmt_trim(trim_end)])
-        cmd.extend([
-            '-c:v', vcodec, '-preset', 'medium', '-crf', str(crf),
-            '-c:a', acodec,
-        ] + extra + ['-b:a', '128k', '-y', str(dst)])
+
+        if audio_mode == 'remove' or audio_mode == 'split':
+            # Без аудио: -c:v copy, -an (быстро, без перекодирования видео)
+            cmd.extend(['-c:v', vcodec, '-preset', 'medium', '-crf', str(crf),
+                        '-an', '-y', str(dst)])
+        else:
+            cmd.extend([
+                '-c:v', vcodec, '-preset', 'medium', '-crf', str(crf),
+                '-c:a', acodec,
+            ] + extra + ['-b:a', '128k', '-y', str(dst)])
 
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)

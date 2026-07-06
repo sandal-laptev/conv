@@ -62,6 +62,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help='Конец обрезки в секундах (0 = до конца)')
     p.add_argument('--sort-by-type', action='store_true',
                    help='Сортировать выходные файлы по типу (image/, video/, audio/)')
+    p.add_argument('--no-audio', action='store_true',
+                   help='Удалить аудиодорожку из видео')
+    p.add_argument('--split-audio', metavar='FMT', nargs='?', const='mp3',
+                   help='Разделить видео и аудио в отдельные файлы (формат: mp3, flac...)'
+    )
     p.add_argument('--rename-to', metavar='EXT',
                    help='Переименовать файлы в указанное расширение (без конвертации)')
     p.add_argument('--info', action='store_true',
@@ -401,6 +406,9 @@ def main(argv: list[str] | None = None) -> int:
             trim_start=args.trim_start,
             trim_end=args.trim_end,
             sort_by_type=args.sort_by_type,
+            audio_mode='remove' if args.no_audio else (
+                'split' if args.split_audio else 'keep'),
+            audio_format=args.split_audio or 'mp3',
         ))
 
     # ── DRY RUN ──

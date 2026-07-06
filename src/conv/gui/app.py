@@ -374,6 +374,13 @@ class ConvApp(QMainWindow):
 
         out_dir = Path(self._out_dir_edit.text())
         out_dir.mkdir(parents=True, exist_ok=True)
+        audio_mode = self.params.audio_mode
+        audio_fmt = self.params.audio_split_format
+
+        # ── Split audio/video — отдельный поток ──
+        if audio_mode == 'split':
+            self._do_split_convert(paths, out_dir)
+            return
 
         requests = [
             ConvertRequest(
@@ -382,6 +389,8 @@ class ConvApp(QMainWindow):
                 sort_by_type=self.params.sort_by_type,
                 trim_start=self.preview.get_trim(p)[0],
                 trim_end=self.preview.get_trim(p)[1],
+                audio_mode=audio_mode,
+                audio_format=audio_fmt,
             ) for p in paths
         ]
 
@@ -406,6 +415,58 @@ class ConvApp(QMainWindow):
         self._worker.finished.connect(self._worker.deleteLater)
         self._thread.finished.connect(self._thread.deleteLater)
         self._thread.start()
+
+    def _do_split_convert(self, paths: list[Path], out_dir: Path):
+        """Разделение видео+аудио в фоновом потоке."""
+        from conv.core import VIDEO_INPUT
+
+        self._status_label.setText("⏳ Разделение видео+аудио...")
+        self._progress.setValue(0)
+        self._set_busy(True)
+
+        audio_fmt = self.params.audio_split_format
+        sort = self.params.sort_by_type
+        video_fmt = self.params.format_name or 'mp4'
+
+        def run():
+            results: list = []
+            total = len(paths)
+            for i, p in enumerate(paths):
+                if p.suffix.lower() not in VIDEO_INPUT:
+                    # Не видео — обычная конвертация
+                    req = ConvertRequest(p, out_dir, output_format=video_fmt,
+                                         quality=self.params.quality,
+                                         max_size=self.params.max_size,
+                                         sort_by_type=sort,
+                                         trim_start=self.preview.get_trim(p)[0],
+                                         trim_end=self.preview.get_trim(p)[1])
+                    res = self.converter.convert_one(req)
+                    self.file_table.set_result(p, res)
+                    results.append(res)
+                else:
+                    vp, ap, err = self.converter.split_audio_video(
+                        p, out_dir, video_fmt, audio_fmt,
+                        self.params.quality,
+                        self.preview.get_trim(p)[0],
+                        self.preview.get_trim(p)[1],
+                        sort_by_type=sort,
+                    )
+                    if err:
+                        log.error("Split error %s: %s", p.name, err)
+                    self.file_table.set_result(p, ConvertResult(
+                        request=ConvertRequest(p, out_dir),
+                        output_path=vp, ok=err is None,
+                        error=err or '',
+                    ))
+                # Прогресс в главном потоке
+                elapsed = 0.0
+                eta = 0.0
+                self._on_progress(i + 1, total, elapsed, eta)
+
+            self._on_finish(results, cancelled=False)
+
+        import threading as _th
+        _th.Thread(target=run, daemon=True).start()
 
     def _cancel_convert(self):
         if self._worker:
