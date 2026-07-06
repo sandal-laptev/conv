@@ -8,7 +8,7 @@ from pathlib import Path
 from PIL import Image as PILImage
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtMultimedia import QMediaPlayer
+from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
     QFrame,
@@ -82,6 +82,9 @@ class _VideoPlayerWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._player = QMediaPlayer(self)
+        self._audio_output = QAudioOutput()
+        self._player.setAudioOutput(self._audio_output)
+        self._audio_output.setVolume(0.7)
         self._user_dragging = False
         self._range_start_ms: int = 0
         self._range_end_ms: int = -1   # -1 = до конца файла
@@ -139,7 +142,8 @@ class _VideoPlayerWidget(QWidget):
         self._vol_slider.setRange(0, 100)
         self._vol_slider.setValue(70)
         self._vol_slider.setFixedWidth(60)
-        self._vol_slider.valueChanged.connect(self._player.setVolume)
+        self._vol_slider.valueChanged.connect(
+            lambda v: self._audio_output.setVolume(v / 100))
         controls.addWidget(self._vol_slider)
 
         layout.addLayout(controls)
