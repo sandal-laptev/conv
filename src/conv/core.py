@@ -152,6 +152,7 @@ class ConvertRequest:
     dry_run: bool = False
     trim_start: float = 0.0           # с (0 = с начала)
     trim_end: float = 0.0             # с (0 = до конца)
+    sort_by_type: bool = False       # сортировать по типу (image/, video/, audio/)
 
     @property
     def rel_dir(self) -> Path:
@@ -171,8 +172,16 @@ class ConvertRequest:
 
     def output_path(self) -> Path:
         if self.preserve_structure and self.rel_dir:
-            return self.output_dir / self.rel_dir / self.output_name()
-        return self.output_dir / self.output_name()
+            base = self.output_dir / self.rel_dir
+        else:
+            base = self.output_dir
+
+        if self.sort_by_type:
+            mime = detect_mime(self.input_ext)
+            if mime:
+                base = base / mime
+
+        return base / self.output_name()
 
     @property
     def input_ext(self) -> str:

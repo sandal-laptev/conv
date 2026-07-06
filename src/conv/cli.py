@@ -60,6 +60,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help='Начало обрезки в секундах (0 = с начала)')
     p.add_argument('--trim-end', type=float, default=0.0, metavar='S',
                    help='Конец обрезки в секундах (0 = до конца)')
+    p.add_argument('--sort-by-type', action='store_true',
+                   help='Сортировать выходные файлы по типу (image/, video/, audio/)')
     p.add_argument('--rename-to', metavar='EXT',
                    help='Переименовать файлы в указанное расширение (без конвертации)')
     p.add_argument('--info', action='store_true',
@@ -348,6 +350,8 @@ def main(argv: list[str] | None = None) -> int:
     if max_size:
         print(f"  Макс.размер: {max_size}px")
     print(f"  Потоков:    {converter.workers}")
+    if args.sort_by_type:
+        print(f"  Сортировка: по типу (image/video/audio)")
     print(f"  Режим:      {'🔍 DRY RUN' if args.dry_run else '⚡ КОНВЕРТАЦИЯ'}\n")
 
     # ── Предупреждение об отсутствующих инструментах ──
@@ -396,6 +400,7 @@ def main(argv: list[str] | None = None) -> int:
             dry_run=args.dry_run,
             trim_start=args.trim_start,
             trim_end=args.trim_end,
+            sort_by_type=args.sort_by_type,
         ))
 
     # ── DRY RUN ──

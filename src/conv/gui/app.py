@@ -13,9 +13,7 @@ import customtkinter as ctk
 from conv.core import Converter, ConvertRequest
 from conv.gui.controllers.conversion import ConversionController
 from conv.gui.theme import COLORS, fmt_size, fmt_time
-from conv.history import HistoryManager
-from conv.gui.history_window import HistoryWindow
-from conv.history import HistoryManager
+from conv.history import HistoryManager, ConfigManager
 from conv.gui.history_window import HistoryWindow
 from conv.gui.widgets.drop_zone import DropZone
 from conv.gui.widgets.file_list import FileList
@@ -37,10 +35,11 @@ class ConvApp(ctk.CTk):
 
         self.converter = Converter()
         self.history = HistoryManager()
-        self.history = HistoryManager()
+        self.config = ConfigManager()
         self.preview_index = 0
 
         self._build_ui()
+        self._apply_config()
         self._update_preview()
 
         # Фоновая проверка инструментов
@@ -52,7 +51,7 @@ class ConvApp(ctk.CTk):
 
     def _build_ui(self):
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(3, weight=1)  # content area
+        self.grid_rowconfigure(4, weight=1)  # content area
 
         # Header
         ctk.CTkLabel(
@@ -71,9 +70,12 @@ class ConvApp(ctk.CTk):
         )
         self.params.grid(row=2, column=0, pady=(5, 0), padx=15, sticky="ew")
 
+        # Output options row
+        self._build_output_options()
+
         # Content: file list + preview
         content = ctk.CTkFrame(self, fg_color="transparent")
-        content.grid(row=3, column=0, pady=5, padx=15, sticky="nsew")
+        content.grid(row=4, column=0, pady=5, padx=15, sticky="nsew")
         content.grid_rowconfigure(0, weight=1)
         content.grid_columnconfigure(0, weight=3)
         content.grid_columnconfigure(1, weight=2)
@@ -97,9 +99,59 @@ class ConvApp(ctk.CTk):
 
         log.debug("UI построен")
 
+    def _build_output_options(self):
+        """Строка: выбор выходной папки + чекбокс сортировки по типу."""
+        frame = ctk.CTkFrame(self, fg_color="transparent")
+        frame.grid(row=3, column=0, pady=(2, 0), padx=15, sticky="ew")
+        frame.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(frame, text="📁 Выход:", text_color=COLORS["text2"]).grid(
+            row=0, column=0, sticky="w")
+
+        self._out_dir_var = ctk.StringVar(value=str(Path.cwd() / "CONVERTED"))
+        self._out_dir_entry = ctk.CTkEntry(
+            frame, textvariable=self._out_dir_var, width=350,
+            fg_color=COLORS["surface"], text_color=COLORS["text"],
+        )
+        self._out_dir_entry.grid(row=0, column=1, sticky="w", padx=5)
+
+        ctk.CTkButton(
+            frame, text="📂", width=30,
+            fg_color=COLORS["surface2"], text_color=COLORS["text2"],
+            command=self._choose_output_dir,
+        ).grid(row=0, column=2, padx=(0, 10))
+
+        self._sort_by_type_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            frame, text="📁 Сортировать по типу (image/video/audio)",
+            variable=self._sort_by_type_var,
+            text_color=COLORS["text2"],
+            command=self._on_sort_by_type_changed,
+        ).grid(row=0, column=3, padx=(10, 0))
+
+    def _choose_output_dir(self):
+        from tkinter import filedialog
+        d = filedialog.askdirectory(
+            title="Выберите папку для сохранения",
+            initialdir=self._out_dir_var.get(),
+        )
+        if d:
+            self._out_dir_var.set(d)
+            self.config.last_output_dir = d
+
+    def _on_sort_by_type_changed(self):
+        self.config.sort_by_type = self._sort_by_type_var.get()
+
+    def _apply_config(self):
+        """Загрузить сохранённые настройки."""
+        if self.config.last_output_dir:
+            p = Path(self.config.last_output_dir)
+            self._out_dir_var.set(str(p))
+        self._sort_by_type_var.set(self.config.sort_by_type)
+
     def _build_buttons(self):
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.grid(row=4, column=0, pady=(5, 0), padx=15, sticky="ew")
+        btn_frame.grid(row=5, column=0, pady=(5, 0), padx=15, sticky="ew")
 
         self.convert_btn = ctk.CTkButton(
             btn_frame, text="⚡ Конвертировать",
@@ -150,7 +202,7 @@ class ConvApp(ctk.CTk):
 
     def _build_status(self):
         status_frame = ctk.CTkFrame(self, fg_color="transparent")
-        status_frame.grid(row=5, column=0, pady=(5, 15), padx=15, sticky="ew")
+        status_frame.grid(row=6, column=0, pady=(5, 15), padx=15, sticky="ew")
         status_frame.grid_columnconfigure(1, weight=1)
 
         self.progress_bar = ctk.CTkProgressBar(
@@ -294,8 +346,8 @@ class ConvApp(ctk.CTk):
         # ── Обычная конвертация ──
         self._controller_running = True
 
-        out_dir = Path.cwd() / "CONVERTED"
-        out_dir.mkdir(exist_ok=True, parents=True)
+        out_dir = Path(self._out_dir_var.get())
+        out_dir.mkdir(parents=True, exist_ok=True)
 
         requests = [
             ConvertRequest(
@@ -305,6 +357,7 @@ class ConvApp(ctk.CTk):
                 max_size=self.params.max_size,
                 trim_start=self.preview.get_trim(p)[0],
                 trim_end=self.preview.get_trim(p)[1],
+                sort_by_type=self._sort_by_type_var.get(),
             )
             for p in self.file_list.paths
         ]
@@ -380,11 +433,14 @@ class ConvApp(ctk.CTk):
         # Сохраняем в историю
         for r in results:
             self.history.add_from_result(r, "Конвертация")
+        # Сохраняем настройки
+        self.config.last_output_dir = self._out_dir_var.get()
+        self.config.sort_by_type = self._sort_by_type_var.get()
 
     # ── Открыть папку ──
 
     def _open_output(self):
-        out_dir = Path.cwd() / "CONVERTED"
+        out_dir = Path(self._out_dir_var.get())
         if out_dir.exists():
             if os.name == "posix":
                 os.system(f'xdg-open "{out_dir}"')
