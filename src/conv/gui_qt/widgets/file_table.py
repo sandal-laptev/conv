@@ -137,6 +137,7 @@ class FileTableWidget(QWidget):
         self._tree.setEditTriggers(QTreeView.NoEditTriggers)
         self._tree.setIndentation(0)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._tree.setVisible(False)  # скрыт пока нет файлов
         self._tree.customContextMenuRequested.connect(self._show_context_menu)
         self._tree.clicked.connect(self._on_click)
 
@@ -170,15 +171,24 @@ class FileTableWidget(QWidget):
         """)
 
         # Метка-подсказка для дропа (показывается когда таблица пуста)
-        self._drop_hint = QLabel(
-            "📂 Перетащите файлы сюда\n(или нажмите кнопку «Выбрать файлы»)"
-        )
+        self._drop_hint = QLabel()
         self._drop_hint.setAlignment(Qt.AlignCenter)
-        self._drop_hint.setStyleSheet(f"color: #606070; font-size: 14px; padding: 40px;")
-        self._drop_hint.setVisible(False)
-        layout.addWidget(self._drop_hint)
+        self._drop_hint.setText(
+            "📂  Перетащите файлы сюда\n\n"
+            "или нажмите «Выбрать файлы» сверху"
+        )
+        self._drop_hint.setStyleSheet(f"""
+            color: #606070;
+            font-size: 15px;
+            padding: 40px;
+            border: 2px dashed #2a2a4e;
+            border-radius: 12px;
+            background-color: rgba(22, 33, 62, 80);
+        """)
+        self._drop_hint.setVisible(True)  # показать при старте (пока нет файлов)
+        layout.addWidget(self._drop_hint, stretch=1)
 
-        layout.addWidget(self._tree)
+        layout.addWidget(self._tree, stretch=1)
 
     # ── Свойства ───────────────────────────────────────────────────────
 
