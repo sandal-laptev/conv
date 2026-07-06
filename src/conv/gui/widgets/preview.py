@@ -127,6 +127,21 @@ class _VideoPlayerWidget(QWidget):
         self._time_label.setStyleSheet(f"color: {COLORS['text2']}; font-size: 10px;")
         controls.addWidget(self._time_label)
 
+        # Громкость
+        controls.addSpacing(4)
+        self._btn_mute = QPushButton("🔊")
+        self._btn_mute.setFixedWidth(28)
+        self._btn_mute.clicked.connect(self._toggle_mute)
+        self._btn_mute.setToolTip("Mute")
+        controls.addWidget(self._btn_mute)
+
+        self._vol_slider = QSlider(Qt.Horizontal)
+        self._vol_slider.setRange(0, 100)
+        self._vol_slider.setValue(70)
+        self._vol_slider.setFixedWidth(60)
+        self._vol_slider.valueChanged.connect(self._player.setVolume)
+        controls.addWidget(self._vol_slider)
+
         layout.addLayout(controls)
 
         self._player.durationChanged.connect(self._on_duration_changed)
@@ -189,6 +204,10 @@ class _VideoPlayerWidget(QWidget):
         self._player.pause()
         pos = self._range_start_ms if self._range_active else 0
         self._player.setPosition(pos)
+
+    def _toggle_mute(self) -> None:
+        self._player.setMuted(not self._player.isMuted())
+        self._btn_mute.setText("🔇" if self._player.isMuted() else "🔊")
 
     def _seek(self, value: int) -> None:
         """Перемотка. Если range активен — value 0..1000 = IN..OUT."""

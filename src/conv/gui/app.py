@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from conv import __version__ as conv_version
-from conv.core import Converter, ConvertRequest, _fmt_size as fmt_size
+from conv.core import Converter, ConvertRequest, ConvertResult, _fmt_size as fmt_size
 from conv.gui.about import AboutDialog
 from conv.gui.controllers.conversion import ConversionWorker
 from conv.gui.i18n import _, set_lang
