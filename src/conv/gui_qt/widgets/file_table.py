@@ -95,9 +95,23 @@ class FileTableWidget(QWidget):
         header.setSectionResizeMode(COL_RESULT, QHeaderView.Stretch)
         self._tree.setColumnWidth(COL_CHECK, 30)
 
-        # Ховер подсветка всей строки
+        # QSS: ховер + зелёные чекбоксы
         self._tree.setStyleSheet("""
             QTreeView::item:hover { background-color: rgba(0, 210, 255, 30); }
+            QTreeView::indicator {
+                width: 14px;
+                height: 14px;
+                border: 1px solid #2a2a4e;
+                border-radius: 3px;
+                background-color: #16213e;
+            }
+            QTreeView::indicator:checked {
+                background-color: #00e676;
+                border: 1px solid #00e676;
+            }
+            QTreeView::indicator:hover {
+                border-color: #00d2ff;
+            }
         """)
 
         layout.addWidget(self._tree)
