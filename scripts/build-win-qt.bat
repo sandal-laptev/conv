@@ -47,7 +47,9 @@ echo.
 
 python -m PyInstaller --onefile --windowed ^
     --name "MO-Kolomyagi-Media-Converter" ^
+    --icon "src\conv\gui_qt\resources\icon.ico" ^
     --add-data "src/conv;conv" ^
+    --add-data "src\conv\gui_qt\resources\icon.ico;conv\gui_qt\resources" ^
     %EXTRA_DATA% ^
     --hidden-import conv.core ^
     --hidden-import conv.cli ^

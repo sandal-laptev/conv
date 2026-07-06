@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 
 from PySide6.QtCore import QThread, QUrl, Qt
-from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
+from PySide6.QtGui import QDesktopServices, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -68,6 +68,10 @@ class ConvApp(QMainWindow):
         self.setWindowTitle(_("window_title"))
         self.resize(1100, 720)
         self.setMinimumSize(700, 600)
+        # Иконка окна
+        ico = Path(__file__).resolve().parent / "resources" / "icon.png"
+        if ico.exists():
+            self.setWindowIcon(QIcon(str(ico)))
 
     # ── Сборка UI ──────────────────────────────────────────────────────
 
