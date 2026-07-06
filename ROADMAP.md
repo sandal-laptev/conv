@@ -87,12 +87,14 @@
 - [x] **scripts/build-win.bat** — PyInstaller под Windows
 - [x] Включает ffmpeg/ffprobe, PySide6, pillow-heif
 
-### Аудио-режимы ✅
+### Аудио-режимы + аудиоплеер ✅
 - [x] **🔇 Удалить аудио** — `-c:v copy -an` (без перекодирования видео)
 - [x] **✂ Разделить видео+аудио** — два файла рядом (`split_audio_video()`)
 - [x] GUI: выбор режима в параметрах, доп. формат для split
 - [x] CLI: `--no-audio`, `--split-audio [mp3|flac|...]`
 - [x] 🔊 Громкость: QAudioOutput + ползунок + mute
+- [x] 🎵 **Аудиоплеер** — QMediaPlayer для mp3/flac/wav
+- [x] Play/Pause, слайдер, таймлайн — как на видео
 
 ### Исправления
 - [x] `QTimeRange` → программный range guard (нет в PySide6 на Windows)
