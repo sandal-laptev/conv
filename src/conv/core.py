@@ -18,10 +18,18 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional, Protocol
+from typing import Any as _Any
 
 from conv.logger import get_logger
 
 log = get_logger("conv.core")
+
+
+def _subprocess_kwargs() -> dict:
+    """Доп. аргументы subprocess: скрыть окно консоли на Windows."""
+    if sys.platform == 'win32':
+        return {'creationflags': 0x08000000}  # CREATE_NO_WINDOW
+    return {}
 
 __version__ = "2.0.0"
 
@@ -339,6 +347,7 @@ def get_media_info(path: Path) -> MediaInfo:
         r = subprocess.run(
             [ffmpeg, '-i', str(path)],
             capture_output=True, text=True, timeout=30,
+            **_subprocess_kwargs(),
         )
         stderr = r.stderr
 
@@ -836,6 +845,7 @@ class Converter:
                 ['rsvg-convert', '-w', str(size), '-h', str(size),
                  '--keep-aspect-ratio', str(src), '-o', str(dst)],
                 capture_output=True, text=True, timeout=60,
+                **_subprocess_kwargs(),
             )
             if r.returncode != 0:
                 return r.stderr.strip()
@@ -932,7 +942,8 @@ class Converter:
             ] + extra + ['-b:a', '128k', '-y', str(dst)])
 
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=7200,
+                              **_subprocess_kwargs())
             if r.returncode != 0:
                 err_lines = [l for l in r.stderr.split('\n')
                              if 'error' in l.lower() or 'Error' in l]
@@ -974,7 +985,8 @@ class Converter:
         cmd.extend(params + ['-y', str(dst)])
 
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=7200,
+                              **_subprocess_kwargs())
             if r.returncode != 0:
                 err_lines = [l for l in r.stderr.split('\n')
                              if 'error' in l.lower() or 'Error' in l]

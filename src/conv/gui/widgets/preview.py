@@ -295,6 +295,7 @@ class PreviewPanel(QWidget):
         super().__init__(parent)
         self._current_path: Path | None = None
         self._trim_map: dict[Path, tuple[float, float]] = {}
+        self._duration_cache: dict[Path, float] = {}  # кеш длительности (без ffprobe на каждый чих)
         self._build_ui()
         self.clear()
 
@@ -400,6 +401,7 @@ class PreviewPanel(QWidget):
 
         if is_media:
             info = get_media_info(path)
+            self._duration_cache[path] = info.duration or 0
             if info.duration:
                 lines.append(f"⏱ Длительность: {info.fmt_duration()}")
             if info.bit_rate:
@@ -487,10 +489,10 @@ class PreviewPanel(QWidget):
 
     def _on_trim_changed(self, path: Path, start: float, end: float) -> None:
         self._trim_map[path] = (start, end)
-        # Обновить playbackRange в плеере
+        # Обновить playbackRange в плеере (без ffprobe — кеш длительности)
         if path == self._current_path and (path.suffix.lower() in VIDEO_INPUT):
-            info = get_media_info(path)
-            self._video_player.set_playback_range(start, end, info.duration or 0)
+            dur = getattr(self, '_duration_cache', {}).get(path, 0)
+            self._video_player.set_playback_range(start, end, dur)
 
     def _restore_trim(self, path: Path) -> None:
         saved = self._trim_map.get(path)
@@ -498,5 +500,5 @@ class PreviewPanel(QWidget):
             start, end = saved
             self._timeline.set_trim_silent(start, end)
             if path.suffix.lower() in VIDEO_INPUT:
-                info = get_media_info(path)
-                self._video_player.set_playback_range(start, end, info.duration or 0)
+                dur = getattr(self, '_duration_cache', {}).get(path, 0)
+                self._video_player.set_playback_range(start, end, dur)

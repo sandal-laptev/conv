@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from conv.core import VIDEO_INPUT, Converter, get_media_info
+from conv.core import _subprocess_kwargs
 from conv.gui.theme import COLORS
 from conv.logger import get_logger
 
@@ -479,6 +480,7 @@ class TimelineWidget(QFrame):
                  "-filter_complex", f"showwavespic=s=800x{TRACK_H}:colors={cs}",
                  "-frames:v", "1", "-y", str(out)],
                 capture_output=True, text=True, timeout=30,
+                **_subprocess_kwargs(),
             )
             if r.returncode == 0 and out.exists() and out.stat().st_size > 0:
                 pix = QPixmap(str(out))
@@ -497,6 +499,7 @@ class TimelineWidget(QFrame):
                  "-vf", f"fps={n / max(self._duration, 1):.3f},scale=50:-1,tile={n}x1",
                  "-frames:v", "1", "-y", str(out)],
                 capture_output=True, text=True, timeout=60,
+                **_subprocess_kwargs(),
             )
             if r.returncode == 0 and out.exists() and out.stat().st_size > 0:
                 pix = QPixmap(str(out))
