@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 
 from PySide6.QtCore import QThread, QUrl, Qt
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import QSplitter
 from PySide6.QtWidgets import (
     QApplication,
@@ -53,6 +53,7 @@ class ConvApp(QMainWindow):
         self._setup_window()
         self._build_ui()
         self._apply_config()
+        self._setup_shortcuts()
 
         log.info("Qt GUI запущен")
 
@@ -526,6 +527,47 @@ class ConvApp(QMainWindow):
             2.0, lambda: self._btn_logs.setText(orig),
         ).start()
         log.info("Логи скопированы в буфер")
+
+    # ── Горячие клавиши ───────────────────────────────────────────────
+
+    def _setup_shortcuts(self):
+        _sc = lambda *a, **kw: QShortcut(*a, **kw, context=Qt.ApplicationShortcut, parent=self)
+
+        _sc(QKeySequence("Ctrl+A")).activated.connect(
+            lambda: self.file_table.set_all_checked(True))
+        _sc(QKeySequence("Ctrl+Shift+A")).activated.connect(
+            lambda: self.file_table.set_all_checked(False))
+        _sc(QKeySequence("Ctrl+I")).activated.connect(
+            self.file_table.invert_selection)
+        _sc(QKeySequence("Delete")).activated.connect(self._delete_selected)
+        _sc(QKeySequence("Return")).activated.connect(self._do_convert)
+        _sc(QKeySequence("Ctrl+O")).activated.connect(self._select_files)
+        _sc(QKeySequence("Ctrl+Shift+O")).activated.connect(self._select_folder)
+        _sc(QKeySequence("Ctrl+.")).activated.connect(self._open_output)
+        _sc(QKeySequence("Escape")).activated.connect(self._cancel_or_clear)
+        _sc(QKeySequence( "Space")).activated.connect(self._toggle_playback)
+
+        log.info("Горячие клавиши: Ctrl+A/Shift+A/I/Delete/Enter/Ctrl+O/Space/Esc")
+
+    def _delete_selected(self):
+        """Удалить выделенные файлы (Delete)."""
+        sel = self.file_table.selected_paths
+        if sel:
+            self.file_table.remove_files(sel)
+            self._update_buttons()
+            self.preview.clear()
+
+    def _cancel_or_clear(self):
+        """Esc: отменить конвертацию или очистить список."""
+        if self._worker is not None:
+            self._cancel_convert()
+        elif self.file_table.count > 0:
+            self._clear_all()
+
+    def _toggle_playback(self):
+        """Space: play/pause видео."""
+        if hasattr(self, "preview"):
+            self.preview.toggle_video_playback()
 
     # ── Конфиг ─────────────────────────────────────────────────────────
 

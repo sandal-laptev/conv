@@ -452,6 +452,15 @@ class PreviewPanel(QWidget):
 
     # ── Trim ───────────────────────────────────────────────────────────
 
+    def toggle_video_playback(self) -> None:
+        """Play/Pause видео (если активно)."""
+        if self._media_stack.currentIndex() == 1:
+            pw = self._video_player
+            if pw._player.playbackState() == QMediaPlayer.PlayingState:
+                pw._player.pause()
+            else:
+                pw._player.play()
+
     def _on_trim_changed(self, path: Path, start: float, end: float) -> None:
         self._trim_map[path] = (start, end)
         # Обновить playbackRange в плеере
