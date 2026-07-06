@@ -6,7 +6,15 @@ import io
 from pathlib import Path
 
 from PIL import Image as PILImage
-from PySide6.QtCore import QTimeRange, Qt, QUrl, Signal
+from PySide6.QtCore import Qt, QUrl, Signal
+
+# QTimeRange появился в Qt 6.5 (PySide6 6.5+).
+# На более старых версиях — setPlaybackRange через (int, int) недоступен.
+try:
+    from PySide6.QtCore import QTimeRange
+    HAS_TIME_RANGE = True
+except ImportError:
+    HAS_TIME_RANGE = False
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
@@ -133,7 +141,8 @@ class _VideoPlayerWidget(QWidget):
         """Загрузить видеофайл и сбросить обрезку на полный диапазон."""
         self._player.stop()
         self._player.setSource(QUrl.fromLocalFile(str(path)))
-        self._player.setPlaybackRange(QTimeRange(0, -1))  # весь файл
+        if HAS_TIME_RANGE:
+            self._player.setPlaybackRange(QTimeRange(0, -1))
         self._time_label.setText("00:00 / 00:00")
         self._pos_slider.setValue(0)
 
@@ -148,13 +157,14 @@ class _VideoPlayerWidget(QWidget):
         Показывает только выбранный отрезок. При остановке за пределами
         диапазона — возвращается на начало выреза.
         """
+        if not HAS_TIME_RANGE:
+            return  # setPlaybackRange недоступен в этой версии PySide6
         start_ms = max(0, int(start_sec * 1000))
         if end_sec > 0 and end_sec < duration:
             end_ms = int(end_sec * 1000)
         else:
             end_ms = -1  # до конца
         self._player.setPlaybackRange(QTimeRange(start_ms, end_ms))
-        # Если плеер был за пределами нового диапазона — перемотать на IN
         cur = self._player.position()
         if cur < start_ms or (end_ms > 0 and cur > end_ms):
             self._player.setPosition(start_ms)
