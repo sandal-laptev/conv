@@ -47,32 +47,41 @@ HEADERS = ["", "Файл", "Размер", "→ формат", "Статус", "
 
 
 class _DropTreeView(QTreeView):
-    """QTreeView, принимающий дроп файлов из OS."""
+    """QTreeView, принимающий дроп файлов из OS.
+
+    Вместо оверлея — меняет border на dashed при драге.
+    """
+
+    _DRAG_STYLE = """
+        QTreeView {
+            border: 3px dashed #00d2ff !important;
+            border-radius: 6px;
+        }
+    """
 
     files_dropped = Signal(object)  # list[Path]
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAcceptDrops(True)
-        self._drag_over = False
+        self._normal_style: str = ""
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
-            self._drag_over = True
-            self.parent()._update_drag_overlay(True)  # type: ignore
+            if not self._normal_style:
+                self._normal_style = self.styleSheet()
+            self.setStyleSheet(self._normal_style + self._DRAG_STYLE)
 
     def dragMoveEvent(self, event):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
 
     def dragLeaveEvent(self, event):
-        self._drag_over = False
-        self.parent()._update_drag_overlay(False)  # type: ignore
+        self.setStyleSheet(self._normal_style)
 
     def dropEvent(self, event: QDropEvent):
-        self._drag_over = False
-        self.parent()._update_drag_overlay(False)  # type: ignore
+        self.setStyleSheet(self._normal_style)
 
         if not event.mimeData().hasUrls():
             return
@@ -272,26 +281,7 @@ class FileTableWidget(QWidget):
     # ── Drag-n-Drop ─────────────────────────────────────────────────
 
     def _setup_drag_drop(self):
-        self._drag_overlay = QLabel(self)
-        self._drag_overlay.setAlignment(Qt.AlignCenter)
-        self._drag_overlay.setStyleSheet(f"""
-            background-color: rgba(0, 210, 255, 40);
-            border: 3px dashed #00d2ff;
-            border-radius: 8px;
-            color: #00d2ff;
-            font-size: 16px;
-            font-weight: bold;
-        """)
-        self._drag_overlay.setText("📂 Отпустите файлы для добавления")
-        self._drag_overlay.setVisible(False)
-        self._drag_overlay.raise_()
-
-    def _update_drag_overlay(self, visible: bool):
-        if not hasattr(self, "_drag_overlay"):
-            return
-        self._drag_overlay.setVisible(visible)
-        if visible:
-            self._drag_overlay.setGeometry(self.rect().adjusted(4, 4, -4, -4))
+        pass  # drag handled by _DropTreeView
 
     # ── Построение ─────────────────────────────────────────────────────
 
