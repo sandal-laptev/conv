@@ -35,6 +35,7 @@ def _file_size(path: Path) -> int:
     except OSError:
         return 0
 from conv.gui_qt.theme import COLORS
+from conv.gui_qt.widgets.timeline import TimelineWidget
 
 
 class _ScaledLabel(QLabel):
@@ -82,6 +83,7 @@ class PreviewPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._current_path: Path | None = None
+        self._trim_map: dict[Path, tuple[float, float]] = {}
         self._build_ui()
         self.clear()
 
@@ -145,11 +147,23 @@ class PreviewPanel(QWidget):
 
         layout.addWidget(info_frame)
 
+        # ── Таймлайн (для видео/аудио) ──
+        self._timeline = TimelineWidget()
+        self._timeline.trim_changed.connect(self._on_trim_changed)
+        self._timeline.setVisible(False)
+        layout.addWidget(self._timeline)
+
+    # ── Публичное API ──────────────────────────────────────────────────
+
     # ── Публичное API ──────────────────────────────────────────────────
 
     @property
     def current_path(self) -> Path | None:
         return self._current_path
+
+    def get_trim(self, path: Path) -> tuple[float, float]:
+        """Вернуть trim (start, end) в секундах для файла. (0, 0) = без обрезки."""
+        return self._timeline.get_trim(path)
 
     def show(self, path: Path, idx: int, total: int,
              fmt_var: str = "", quality: int = 85,
@@ -182,7 +196,8 @@ class PreviewPanel(QWidget):
         ]
 
         # Медиа-инфо для видео/аудио
-        if ext in VIDEO_INPUT | AUDIO_INPUT:
+        is_media = ext in (VIDEO_INPUT | AUDIO_INPUT)
+        if is_media:
             info = get_media_info(path)
             if info.duration:
                 lines.append(f"⏱ Длительность: {info.fmt_duration()}")
@@ -221,22 +236,22 @@ class PreviewPanel(QWidget):
         # Миниатюра для изображений
         try:
             with PILImage.open(path) as img:
-                # Ограничиваем размер открываемого изображения
                 if img.width > 4000 or img.height > 4000:
                     img.thumbnail((4000, 4000), PILImage.LANCZOS)
                 self._image_label.set_image(img)
+                self._timeline.setVisible(False)
                 return
         except Exception:
             pass
 
-        # Для видео/аудио — иконка
+        # Для видео/аудио — иконка + таймлайн
         self._image_label.clear_image()
-        icons = {
-            "🎬": "🎬\n(видео — предпросмотр пока недоступен)",
-            "🎵": "🎵\n(аудио — предпросмотр пока недоступен)",
-        }
-        default_icon = icons.get(sym, "🖼\n(нет превью)")
-        self._image_label.setText(default_icon)
+        if is_media:
+            self._image_label.setText("🎬\n(предпросмотр видео — с таймлайном ниже)")
+            self._timeline.set_file(path)
+        else:
+            self._image_label.setText("🖼\n(нет превью)")
+            self._timeline.setVisible(False)
 
     def clear(self) -> None:
         """Очистить панель предпросмотра."""
@@ -246,5 +261,9 @@ class PreviewPanel(QWidget):
         self._btn_next.setEnabled(False)
         self._info_name.setText("(нет файла)")
         self._image_label.clear_image()
+        self._timeline.set_file(None)
         for lbl in self._info_lines:
             lbl.setText("")
+
+    def _on_trim_changed(self, path: Path, start: float, end: float) -> None:
+        self._trim_map[path] = (start, end)

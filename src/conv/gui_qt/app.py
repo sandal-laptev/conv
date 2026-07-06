@@ -353,6 +353,8 @@ class ConvApp(QMainWindow):
                 quality=self.params.quality,
                 max_size=self.params.max_size,
                 sort_by_type=self.params.sort_by_type,
+                trim_start=self.preview.get_trim(p)[0],
+                trim_end=self.preview.get_trim(p)[1],
             )
             for p in self.file_table.paths
         ]
