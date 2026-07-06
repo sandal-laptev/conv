@@ -1,148 +1,152 @@
-"""Панель параметров конвертации (пресет, формат, качество, размер)."""
+"""Панель параметров конвертации (формат, качество, размер, пресет)."""
 
 from __future__ import annotations
 
-from typing import Callable
-
-import customtkinter as ctk
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QSlider,
+    QVBoxLayout,
+    QWidget,
+)
 
 from conv.core import OUTPUT_FORMATS, QUALITY_PRESETS
 from conv.gui.theme import COLORS
-from conv.logger import get_logger
-
-log = get_logger("conv.params")
 
 
-class ParamsPanel(ctk.CTkFrame):
-    """Панель с пресетом, форматом, качеством и макс. размером.
+class ParamsWidget(QWidget):
+    """Настройки конвертации: пресет, формат, качество, макс. размер."""
 
-    Сигналы:
-      on_format_changed()  — формат изменился (нужно обновить список)
-    """
+    format_changed = Signal()
 
-    def __init__(self, parent, on_format_changed: Callable | None = None, **kwargs):
-        super().__init__(parent, fg_color="transparent", **kwargs)
-        self.grid_columnconfigure((0, 1, 2), weight=1)
-        self._on_format_changed = on_format_changed
-
-        # Пресет
-        ctk.CTkLabel(self, text="Пресет:", text_color=COLORS["text2"]).grid(
-            row=0, column=0, sticky="w")
-        preset_options = (
-            [f"{v.label} — {v.description}" for v in QUALITY_PRESETS.values()]
-            + ["— Кастом"]
-        )
-        self._preset_var = ctk.StringVar(value=preset_options[1])  # web
-        preset_menu = ctk.CTkOptionMenu(
-            self, variable=self._preset_var, values=preset_options, width=300,
-        )
-        preset_menu.grid(row=1, column=0, sticky="w", padx=(0, 10))
-        preset_menu.configure(command=self._on_preset_change)
-
-        # Формат
-        ctk.CTkLabel(self, text="Формат:", text_color=COLORS["text2"]).grid(
-            row=0, column=1, sticky="w")
-        fmt_options = ["Авто"] + [f"{k} — {v['desc']}" for k, v in OUTPUT_FORMATS.items()]
-        self._fmt_var = ctk.StringVar(value="Авто")
-        fmt_menu = ctk.CTkOptionMenu(
-            self, variable=self._fmt_var, values=fmt_options, width=160,
-        )
-        fmt_menu.grid(row=1, column=1, sticky="w", padx=(0, 10))
-        fmt_menu.configure(command=self._on_format_selected)
-
-        # Качество
-        ctk.CTkLabel(self, text="Качество:", text_color=COLORS["text2"]).grid(
-            row=0, column=2, sticky="w")
-        self._quality_var = ctk.IntVar(value=80)
-        quality_slider = ctk.CTkSlider(
-            self, variable=self._quality_var,
-            from_=1, to=100, number_of_steps=99, width=160,
-        )
-        quality_slider.grid(row=1, column=2, sticky="w", padx=(0, 10))
-        self._quality_label = ctk.CTkLabel(
-            self, text="80%", width=40, text_color=COLORS["accent"],
-        )
-        self._quality_label.grid(row=1, column=2, sticky="e", padx=(0, 10))
-        quality_slider.configure(command=self._on_quality_change)
-
-        # Макс. размер (row 2)
-        ctk.CTkLabel(self, text="Макс. px (0 = ориг):",
-                     text_color=COLORS["text2"]).grid(row=2, column=1, sticky="w")
-        self._size_entry = ctk.CTkEntry(self, width=100, placeholder_text="0")
-        self._size_entry.grid(row=2, column=2, sticky="w", padx=(0, 10))
-        self._size_entry.insert(0, "1920")
-        self._size_entry.bind("<KeyRelease>", self._on_size_changed)
-
-        # Режим: только переименовать (row 3)
-        self._rename_var = ctk.BooleanVar(value=False)
-        self._rename_cb = ctk.CTkCheckBox(
-            self, text="🔄 Только переименовать (без конвертации)",
-            variable=self._rename_var,
-            command=self._on_rename_toggle,
-            text_color=COLORS["text2"],
-            font=ctk.CTkFont(size=11),
-        )
-        self._rename_cb.grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._build_ui()
+        self._on_preset_change(self._preset_combo.currentText())
 
     # ── Публичное API ──────────────────────────────────────────────────
 
     @property
-    def format_raw(self) -> str:
-        return self._fmt_var.get()
-
-    @property
     def format_name(self) -> str:
-        raw = self._fmt_var.get()
+        raw = self._fmt_combo.currentText()
         return "" if raw == "Авто" else raw.split(" — ")[0]
 
     @property
     def quality(self) -> int:
-        return self._quality_var.get()
-
-    @quality.setter
-    def quality(self, value: int):
-        self._quality_var.set(value)
-        self._quality_label.configure(text=f"{value}%")
+        return self._quality_slider.value()
 
     @property
     def max_size(self) -> int:
-        return int(self._size_entry.get() or "0")
+        try:
+            return int(self._size_entry.text() or "0")
+        except ValueError:
+            return 0
 
-    @max_size.setter
-    def max_size(self, value: int):
-        self._size_entry.delete(0, "end")
-        self._size_entry.insert(0, str(value))
+    @property
+    def sort_by_type(self) -> bool:
+        return self._sort_check.isChecked()
+
+    @sort_by_type.setter
+    def sort_by_type(self, value: bool) -> None:
+        self._sort_check.setChecked(value)
 
     @property
     def rename_only(self) -> bool:
-        """True = только переименовать (без конвертации)."""
-        return self._rename_var.get()
+        return self._rename_check.isChecked()
+
+    # ── Построение ─────────────────────────────────────────────────────
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        # Верхний ряд: пресет | формат | качество
+        row1 = QHBoxLayout()
+        row1.setSpacing(12)
+
+        # Пресет
+        row1.addWidget(QLabel("Пресет:"))
+        self._preset_combo = QComboBox()
+        self._preset_combo.setMinimumWidth(300)
+        for p in QUALITY_PRESETS.values():
+            self._preset_combo.addItem(f"{p.label} — {p.description}", p.name)
+        self._preset_combo.addItem("— Кастом")
+        self._preset_combo.currentIndexChanged.connect(
+            lambda: self._on_preset_change(self._preset_combo.currentText())
+        )
+        row1.addWidget(self._preset_combo)
+
+        # Формат
+        row1.addSpacing(8)
+        row1.addWidget(QLabel("Формат:"))
+        self._fmt_combo = QComboBox()
+        self._fmt_combo.setMinimumWidth(150)
+        self._fmt_combo.addItem("Авто")
+        for k, v in OUTPUT_FORMATS.items():
+            self._fmt_combo.addItem(f"{k} — {v['desc']}")
+        self._fmt_combo.currentIndexChanged.connect(self.format_changed.emit)
+        row1.addWidget(self._fmt_combo)
+
+        # Качество
+        row1.addSpacing(8)
+        row1.addWidget(QLabel("Качество:"))
+        self._quality_slider = QSlider(Qt.Horizontal)
+        self._quality_slider.setRange(1, 100)
+        self._quality_slider.setValue(80)
+        self._quality_slider.setFixedWidth(160)
+        self._quality_label = QLabel("80%")
+        self._quality_label.setStyleSheet(f"color: {COLORS['accent']};")
+        self._quality_slider.valueChanged.connect(
+            lambda v: self._quality_label.setText(f"{v}%")
+        )
+        self._quality_slider.valueChanged.connect(self._unset_preset)
+        row1.addWidget(self._quality_slider)
+        row1.addWidget(self._quality_label)
+        row1.addStretch()
+
+        layout.addLayout(row1)
+
+        # Второй ряд: макс. размер + чекбоксы
+        row2 = QHBoxLayout()
+        row2.setSpacing(12)
+
+        row2.addWidget(QLabel("Макс. px (0 = ориг):"))
+        self._size_entry = QLineEdit()
+        self._size_entry.setFixedWidth(100)
+        self._size_entry.setText("1920")
+        self._size_entry.textChanged.connect(self._unset_preset)
+        row2.addWidget(self._size_entry)
+
+        row2.addSpacing(16)
+
+        self._sort_check = QCheckBox("📁 Сортировать по типу (image/video/audio)")
+        row2.addWidget(self._sort_check)
+
+        self._rename_check = QCheckBox("🔄 Только переименовать (без конвертации)")
+        row2.addWidget(self._rename_check)
+
+        row2.addStretch()
+        layout.addLayout(row2)
 
     # ── Внутреннее ─────────────────────────────────────────────────────
-
-    def _on_quality_change(self, value: float):
-        self._quality_label.configure(text=f"{int(value)}%")
-        self._unset_preset()
-
-    def _on_size_changed(self, *_):
-        self._unset_preset()
-
-    def _unset_preset(self):
-        if self._preset_var.get() != "— Кастом":
-            self._preset_var.set("— Кастом")
 
     def _on_preset_change(self, choice: str):
         for p in QUALITY_PRESETS.values():
             if choice.startswith(f"{p.label} — "):
-                self.quality = p.quality
-                self.max_size = p.max_size
-                log.info("Пресет: %s (q=%d, s=%d)", p.label, p.quality, p.max_size)
+                self._quality_slider.setValue(p.quality)
+                self._size_entry.setText(str(p.max_size))
                 return
 
-    def _on_rename_toggle(self):
-        """Переключение режима переименования."""
-        log.info("Режим переименования: %s", self._rename_var.get())
-
-    def _on_format_selected(self, *_):
-        if self._on_format_changed:
-            self._on_format_changed()
+    def _unset_preset(self, *_):
+        """Сбросить пресет при ручном изменении качества/размера."""
+        idx = self._preset_combo.count() - 1  # — Кастом
+        self._preset_combo.blockSignals(True)
+        self._preset_combo.setCurrentIndex(idx)
+        self._preset_combo.blockSignals(False)

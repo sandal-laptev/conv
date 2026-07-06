@@ -1,82 +1,63 @@
-"""Управление конвертацией: запуск, прогресс, отмена."""
+"""QThread-контроллер для фоновой конвертации."""
 
 from __future__ import annotations
 
-import threading
 import time
-from pathlib import Path
-from typing import Callable
+from typing import Optional
+
+from PySide6.QtCore import QObject, Signal, Slot
 
 from conv.core import Converter, ConvertRequest, ConvertResult
 from conv.logger import get_logger
 
-log = get_logger("conv.controller")
+log = get_logger("conv.gui.conversion")
 
 
-class ConversionController:
-    """Потокобезопасный контроллер конвертации.
+class ConversionWorker(QObject):
+    """Работает в отдельном QThread; не блокирует GUI.
 
-    Сигналы (вызываются в главном потоке через callback):
-      on_progress(done, total, elapsed, eta)
-      on_finish(results: list[ConvertResult], cancelled: bool)
+    Сигналы:
+      progress(done: int, total: int, elapsed: float, eta: float)
+      file_done(result: ConvertResult)
+      finished(results: list[ConvertResult], cancelled: bool)
     """
 
-    def __init__(
-        self,
-        converter: Converter | None = None,
-        on_progress: Callable | None = None,
-        on_finish: Callable | None = None,
-    ):
-        self.converter = converter or Converter()
-        self._on_progress = on_progress
-        self._on_finish = on_finish
-        self.is_running = False
+    progress = Signal(int, int, float, float)   # done, total, elapsed, eta
+    file_done = Signal(object)                   # ConvertResult
+    finished = Signal(object, bool)              # list[ConvertResult], cancelled
+
+    def __init__(self, converter: Converter, requests: list[ConvertRequest]):
+        super().__init__()
+        self.converter = converter
+        self.requests = requests
         self._cancel_flag = False
 
-    @property
-    def cancelled(self) -> bool:
-        return self._cancel_flag
-
-    def cancel(self):
-        """Запросить отмену конвертации."""
+    def cancel(self) -> None:
         self._cancel_flag = True
-        log.info("Конвертация отменена пользователем")
 
-    def start(self, requests: list[ConvertRequest]):
-        """Запустить конвертацию в фоновом потоке."""
-        if self.is_running:
-            return
-
-        self.is_running = True
-        self._cancel_flag = False
-        total = len(requests)
+    @Slot()
+    def run(self) -> None:
+        """Запустить конвертацию. Вызывается из QThread.started."""
+        results: list[ConvertResult] = []
+        done = 0
+        start = time.time()
+        total = len(self.requests)
 
         log.info("Конвертация запущена: %d файлов", total)
 
-        def run():
-            results: list[ConvertResult] = []
-            done = 0
-            start = time.time()
+        for req in self.requests:
+            if self._cancel_flag:
+                log.info("Конвертация отменена (%d/%d)", done, total)
+                break
+            res = self.converter.convert_one(req)
+            results.append(res)
+            done += 1
+            elapsed = time.time() - start
+            eta = (elapsed / done * (total - done)) if done > 0 else 0
+            self.progress.emit(done, total, elapsed, eta)
+            self.file_done.emit(res)
 
-            try:
-                for req in requests:
-                    if self._cancel_flag:
-                        break
-                    res = self.converter.convert_one(req)
-                    results.append(res)
-                    done += 1
-
-                    elapsed = time.time() - start
-                    eta = (elapsed / done * (total - done)) if done > 0 else 0
-
-                    if self._on_progress:
-                        self._on_progress(done, total, elapsed, eta)
-            except Exception as ex:
-                log.exception("Ошибка в потоке конвертации")
-            finally:
-                self.is_running = False
-                cancelled = self._cancel_flag
-                if self._on_finish:
-                    self._on_finish(results, cancelled)
-
-        threading.Thread(target=run, daemon=True).start()
+        cancelled = self._cancel_flag
+        ok = sum(1 for r in results if r.ok)
+        log.info("Конвертация завершена: %d/%d успешно (отмена=%s)", ok, total, cancelled)
+        self.finished.emit(results, cancelled)

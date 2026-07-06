@@ -163,7 +163,7 @@ if __name__ == "__main__":
     import sys
     base = Path(__file__).resolve().parent.parent
     if len(sys.argv) > 1 and sys.argv[1] == "--png":
-        generate_png(base / "src" / "conv" / "gui_qt" / "resources" / "icon.png")
+        generate_png(base / "src" / "conv" / "gui" / "resources" / "icon.png")
     else:
-        generate_ico(base / "src" / "conv" / "gui_qt" / "resources" / "icon.ico")
-        generate_png(base / "src" / "conv" / "gui_qt" / "resources" / "icon.png")
+        generate_ico(base / "src" / "conv" / "gui" / "resources" / "icon.ico")
+        generate_png(base / "src" / "conv" / "gui" / "resources" / "icon.png")
