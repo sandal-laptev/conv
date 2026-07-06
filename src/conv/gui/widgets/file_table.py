@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from conv.core import AUDIO_INPUT, VIDEO_INPUT, ConvertResult, _fmt_size as fmt_size
-from conv.gui_qt.i18n import _
+from conv.gui.i18n import _
 
 
 def _file_icon(path: Path) -> str:

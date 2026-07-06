@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QDialog, QVBoxLayout, QTextBrowser, QPushButton, Q
 from PySide6.QtCore import Qt
 
 from conv import __version__ as conv_version
-from conv.gui_qt.i18n import _
+from conv.gui.i18n import _
 
 
 class AboutDialog(QDialog):
